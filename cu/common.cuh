@@ -1,0 +1,40 @@
+// ════════════════════════════════════════════════════════════════════
+//  common.cuh — Shared definitions for all neuro-spike CUDA kernels
+//
+//  Target: sm_120 (RTX 5080 Blackwell) · CUDA 13.x
+// ════════════════════════════════════════════════════════════════════
+
+#pragma once
+#include <cuda_runtime.h>
+#include <math.h>
+
+// ── Numeric constants ──────────────────────────────────────────────
+#define SHIP_PI       3.14159265358979323846f
+#define SHIP_E        2.71828182845904523536f
+#define SHIP_EPS      1e-8f
+
+// ── Warp utility ──────────────────────────────────────────────────
+#define WARP_SIZE 32
+
+// Fast warp reduction (sum)
+__device__ __forceinline__ float warp_reduce_sum(float val) {
+    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1)
+        val += __shfl_down_sync(0xffffffff, val, offset);
+    return val;
+}
+
+// Fast warp reduction (max)
+__device__ __forceinline__ float warp_reduce_max(float val) {
+    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1)
+        val = fmaxf(val, __shfl_down_sync(0xffffffff, val, offset));
+    return val;
+}
+
+// ── Simple LCG random (inline, no cuRAND dependency) ──────────────
+__device__ __forceinline__ unsigned int lcg_next(unsigned int state) {
+    return state * 1664525u + 1013904223u;
+}
+
+__device__ __forceinline__ float lcg_float(unsigned int state) {
+    return (float)(lcg_next(state) >> 8) * (1.0f / 16777216.0f);
+}

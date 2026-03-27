@@ -1,0 +1,17 @@
+[package]
+name = "myelin-accelerator"
+version.workspace = true
+edition.workspace = true
+description = "CUDA spiking-network kernels + safe Rust FFI wrappers (Tier 1)"
+
+[lib]
+name = "myelin_accelerator"
+path = "src/lib.rs"
+
+[dependencies]
+cust    = { workspace = true }
+anyhow  = { workspace = true }
+tracing = { workspace = true }
+
+[build-dependencies]
+cc = "1.0"
