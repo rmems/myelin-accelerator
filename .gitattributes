@@ -1,0 +1,9 @@
+# Mark generated files as non-language
+*.ptx linguist-generated=true
+
+# Mark build output as vendored (excluded from stats)
+target/** linguist-vendored
+target/** linguist-generated=true
+
+# Ensure Rust is properly detected
+*.rs linguist-language=Rust
