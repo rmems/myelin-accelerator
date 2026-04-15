@@ -318,25 +318,28 @@ void satsolver_check_solution(
 //  satsolver_extract
 //
 //  Copy the assignment of the best walker to the output buffer.
+//  If best_walker[0] is out of range, walker 0 is used as a safe fallback.
 //
 //  Params
 //    assignment   [n_walkers × n_vars]
 //    best_walker  [1]   — index of the walker to extract
 //    output       [n_vars]  — destination assignment
 //    n_vars
+//    n_walkers    — total number of walkers (used for bounds check)
 // ════════════════════════════════════════════════════════════════════
 extern "C" __global__
 void satsolver_extract(
     const unsigned char* __restrict__ assignment,
     const int*           __restrict__ best_walker,
     unsigned char*       __restrict__ output,
-    int n_vars)
+    int n_vars,
+    int n_walkers)
 {
     int var = blockIdx.x * blockDim.x + threadIdx.x;
     if (var >= n_vars) return;
 
     int bw = *best_walker;
-    if (bw < 0) bw = 0;
+    if (bw < 0 || bw >= n_walkers) bw = 0;
     output[var] = assignment[(long)bw * n_vars + var];
 }
 
@@ -405,6 +408,7 @@ void satsolver_best_reduce_pass1(
 //    n_partials
 // ════════════════════════════════════════════════════════════════════
 extern "C" __global__
+__launch_bounds__(256)
 void satsolver_best_reduce_pass2(
     const int* __restrict__ partial_scores,
     const int* __restrict__ partial_walkers,

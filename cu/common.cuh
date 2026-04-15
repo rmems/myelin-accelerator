@@ -50,6 +50,9 @@ __device__ __forceinline__ unsigned int lcg_next(unsigned int state) {
     return state * 1664525u + 1013904223u;
 }
 
+// Convert an already-advanced LCG state to a float in [0, 1).
+// Callers must call lcg_next() before this function to advance
+// the RNG state; lcg_float itself is a pure conversion.
 __device__ __forceinline__ float lcg_float(unsigned int state) {
     return (float)(state >> 8) * (1.0f / 16777216.0f);
 }

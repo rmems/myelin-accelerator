@@ -177,6 +177,9 @@ void cosine_similarity_batched(
 //  merges to produce the final routing experts.  This keeps shared-memory
 //  usage bounded and avoids the single-thread O(N · K) tail.
 //
+//  Shared memory: static only (~8.3 KB), no dynamic allocation needed.
+//  The host should pass 0 for the dynamic shared-memory bytes parameter.
+//
 //  Params
 //    queries         [n_queries × dim]
 //    keys            [n_keys   × dim]

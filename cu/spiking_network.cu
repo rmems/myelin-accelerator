@@ -257,20 +257,13 @@ void stdp_update(
 
     float decay = __expf(-dt_ms / STDP_TAU);
 
-    float pre_tr = 0.0f;
-    float post_tr = 0.0f;
+    float pre_tr  = fmaf(decay, pre_traces[pre],  pre_spikes[pre]);
+    float post_tr = fmaf(decay, post_traces[post], post_spikes[post]);
 
-    if (pre < n_pre) {
-        pre_tr = fmaf(decay, pre_traces[pre], pre_spikes[pre]);
-    }
-    if (post < n_post) {
-        post_tr = fmaf(decay, post_traces[post], post_spikes[post]);
-    }
-
-    if (threadIdx.y == 0 && pre < n_pre) {
+    if (threadIdx.y == 0) {
         pre_traces[pre] = pre_tr;
     }
-    if (threadIdx.x == 0 && post < n_post) {
+    if (threadIdx.x == 0) {
         post_traces[post] = post_tr;
     }
 
@@ -441,6 +434,7 @@ void routing_entropy_reduce_pass1(
 //  Intended launch: a single block (e.g. 256 threads).
 // ════════════════════════════════════════════════════════════════════
 extern "C" __global__
+__launch_bounds__(256)
 void latent_reduce_pass2(
     const float* __restrict__ partial_sum,
     const float* __restrict__ partial_max,
