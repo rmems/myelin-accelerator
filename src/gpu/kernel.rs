@@ -6,9 +6,9 @@
 //  file-system lookup — the bytes travel with the binary.
 // ════════════════════════════════════════════════════════════════════
 
-use cust::module::Module;
-use cust::function::Function;
 use crate::gpu::error::{GpuError, GpuResult};
+use cust::function::Function;
+use cust::module::Module;
 use std::collections::HashMap;
 
 // ── Compile-time PTX embedding ───────────────────────────────────────────────
@@ -21,8 +21,7 @@ static SPIKING_NETWORK_PTX: &str =
 static VECTOR_SIMILARITY_PTX: &str =
     include_str!(concat!(env!("OUT_DIR"), "/vector_similarity_sm_120.ptx"));
 
-static SATSOLVER_PTX: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/satsolver_sm_120.ptx"));
+static SATSOLVER_PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/satsolver_sm_120.ptx"));
 
 // ── KernelModule ─────────────────────────────────────────────────────────────
 
@@ -43,10 +42,7 @@ impl KernelModule {
 
         // Helper closure: load one PTX string, verify required functions exist,
         // then register everything in the maps.
-        let mut load_and_map = |ptx: &str,
-                                 mod_name: &str,
-                                 funcs: &[&str]|
-         -> GpuResult<()> {
+        let mut load_and_map = |ptx: &str, mod_name: &str, funcs: &[&str]| -> GpuResult<()> {
             let module = Self::load_module_from_ptx(ptx, mod_name)?;
 
             for &func_name in funcs {
@@ -108,13 +104,15 @@ impl KernelModule {
 
     /// Retrieve a kernel [`Function`] handle by name.
     pub fn get_function<'a>(&'a self, name: &str) -> GpuResult<Function<'a>> {
-        let mod_name = self.func_map.get(name).ok_or_else(|| {
-            GpuError::KernelNotFound(name.to_string())
-        })?;
+        let mod_name = self
+            .func_map
+            .get(name)
+            .ok_or_else(|| GpuError::KernelNotFound(name.to_string()))?;
 
-        let module = self.modules.get(mod_name).ok_or_else(|| {
-            GpuError::KernelNotFound(format!("module {mod_name} missing"))
-        })?;
+        let module = self
+            .modules
+            .get(mod_name)
+            .ok_or_else(|| GpuError::KernelNotFound(format!("module {mod_name} missing")))?;
 
         module
             .get_function(name)

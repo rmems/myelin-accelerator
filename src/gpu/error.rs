@@ -27,13 +27,13 @@ pub enum GpuError {
 impl fmt::Display for GpuError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GpuError::InitFailed(s)       => write!(f, "GPU init failed: {s}"),
+            GpuError::InitFailed(s) => write!(f, "GPU init failed: {s}"),
             GpuError::ModuleLoadFailed(s) => write!(f, "PTX module load failed: {s}"),
-            GpuError::KernelNotFound(s)   => write!(f, "Kernel not found: {s}"),
-            GpuError::MemoryError(s)      => write!(f, "GPU memory error: {s}"),
-            GpuError::LaunchFailed(s)     => write!(f, "Kernel launch failed: {s}"),
-            GpuError::CudaError(s)        => write!(f, "CUDA error: {s}"),
-            GpuError::NoGpu               => write!(f, "No GPU available"),
+            GpuError::KernelNotFound(s) => write!(f, "Kernel not found: {s}"),
+            GpuError::MemoryError(s) => write!(f, "GPU memory error: {s}"),
+            GpuError::LaunchFailed(s) => write!(f, "Kernel launch failed: {s}"),
+            GpuError::CudaError(s) => write!(f, "CUDA error: {s}"),
+            GpuError::NoGpu => write!(f, "No GPU available"),
         }
     }
 }
