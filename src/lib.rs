@@ -2,4 +2,4 @@
 pub mod gpu;
 
 // Re-export the main public API at the crate root for ergonomic use.
-pub use gpu::{GpuAccelerator, GpuContext, GpuBuffer, KernelModule, GpuError};
+pub use gpu::{GpuAccelerator, GpuBuffer, GpuContext, GpuError, KernelModule};
