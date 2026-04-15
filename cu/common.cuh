@@ -7,6 +7,7 @@
 #pragma once
 #include <cuda_runtime.h>
 #include <math.h>
+#include <limits.h>
 
 // ── Numeric constants ──────────────────────────────────────────────
 #define SHIP_PI       3.14159265358979323846f
@@ -19,14 +20,28 @@
 // Fast warp reduction (sum)
 __device__ __forceinline__ float warp_reduce_sum(float val) {
     for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1)
-        val += __shfl_down_sync(0xffffffff, val, offset);
+        val += __shfl_down_sync(0xffffffffu, val, offset);
     return val;
 }
 
 // Fast warp reduction (max)
 __device__ __forceinline__ float warp_reduce_max(float val) {
     for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1)
-        val = fmaxf(val, __shfl_down_sync(0xffffffff, val, offset));
+        val = fmaxf(val, __shfl_down_sync(0xffffffffu, val, offset));
+    return val;
+}
+
+// Fast warp reduction (int sum)
+__device__ __forceinline__ int warp_reduce_sum_int(int val) {
+    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1)
+        val += __shfl_down_sync(0xffffffffu, val, offset);
+    return val;
+}
+
+// Fast warp reduction (int min)
+__device__ __forceinline__ int warp_reduce_min_int(int val) {
+    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1)
+        val = min(val, __shfl_down_sync(0xffffffffu, val, offset));
     return val;
 }
 
@@ -36,5 +51,5 @@ __device__ __forceinline__ unsigned int lcg_next(unsigned int state) {
 }
 
 __device__ __forceinline__ float lcg_float(unsigned int state) {
-    return (float)(lcg_next(state) >> 8) * (1.0f / 16777216.0f);
+    return (float)(state >> 8) * (1.0f / 16777216.0f);
 }
