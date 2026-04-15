@@ -11,6 +11,73 @@
 
 #include "common.cuh"
 
+#define MAX_ROUTING_TOP_K 32
+#define MAX_BLOCK_WARPS   32
+#define COSINE_SENTINEL   -2.0f
+
+__device__ __forceinline__
+bool topk_better(
+    float lhs_score,
+    int lhs_idx,
+    float rhs_score,
+    int rhs_idx)
+{
+    return lhs_score > rhs_score ||
+           (lhs_score == rhs_score && lhs_idx < rhs_idx);
+}
+
+__device__ __forceinline__
+void topk_insert(
+    float score,
+    int idx,
+    float (&scores)[MAX_ROUTING_TOP_K],
+    int (&indices)[MAX_ROUTING_TOP_K],
+    int top_k)
+{
+    if (top_k <= 0) return;
+
+    int tail = top_k - 1;
+    if (!topk_better(score, idx, scores[tail], indices[tail])) return;
+
+    scores[tail] = score;
+    indices[tail] = idx;
+
+    for (int pos = tail; pos > 0; --pos) {
+        if (!topk_better(scores[pos], indices[pos], scores[pos - 1], indices[pos - 1]))
+            break;
+
+        float tmp_score = scores[pos - 1];
+        int tmp_idx = indices[pos - 1];
+        scores[pos - 1] = scores[pos];
+        indices[pos - 1] = indices[pos];
+        scores[pos] = tmp_score;
+        indices[pos] = tmp_idx;
+    }
+}
+
+__device__ __forceinline__
+void warp_reduce_best(
+    float& score,
+    int& idx,
+    int& owner_lane)
+{
+    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+        float other_score = __shfl_down_sync(0xffffffffu, score, offset);
+        int other_idx = __shfl_down_sync(0xffffffffu, idx, offset);
+        int other_owner = __shfl_down_sync(0xffffffffu, owner_lane, offset);
+
+        if (topk_better(other_score, other_idx, score, idx)) {
+            score = other_score;
+            idx = other_idx;
+            owner_lane = other_owner;
+        }
+    }
+
+    score = __shfl_sync(0xffffffffu, score, 0);
+    idx = __shfl_sync(0xffffffffu, idx, 0);
+    owner_lane = __shfl_sync(0xffffffffu, owner_lane, 0);
+}
+
 // ════════════════════════════════════════════════════════════════════
 //  cosine_similarity_batched
 //
@@ -105,8 +172,13 @@ void cosine_similarity_batched(
 //  Like cosine_similarity_batched but for each query also writes
 //  the top-K key indices (by similarity score) into `top_k_indices`.
 //
-//  Implementation: compute full row of similarities, then one warp
-//  does a simple selection sort for small K (K ≤ 32).
+//  Implementation: stream the similarity row once, keep each thread's
+//  local top candidates in registers, then use warp-participating k-way
+//  merges to produce the final routing experts.  This keeps shared-memory
+//  usage bounded and avoids the single-thread O(N · K) tail.
+//
+//  Shared memory: static only (~8.3 KB), no dynamic allocation needed.
+//  The host should pass 0 for the dynamic shared-memory bytes parameter.
 //
 //  Params
 //    queries         [n_queries × dim]
@@ -126,62 +198,122 @@ void cosine_similarity_top_k(
     int dim,
     int top_k)
 {
-    // One block per query; threads cooperate over keys
     int q = blockIdx.x;
     if (q >= n_queries) return;
 
+    if (top_k <= 0) return;
+
+    int requested_k = (top_k < n_keys) ? top_k : n_keys;
+    int actual_k = (requested_k < MAX_ROUTING_TOP_K) ? requested_k : MAX_ROUTING_TOP_K;
+    int* out_idx = top_k_indices + (long)q * top_k;
+
+    if (requested_k <= 0) {
+        for (int t = threadIdx.x; t < top_k; t += blockDim.x)
+            out_idx[t] = -1;
+        return;
+    }
+
     const float* qv = queries + (long)q * dim;
+    int lane = threadIdx.x & (WARP_SIZE - 1);
+    int warp_id = threadIdx.x / WARP_SIZE;
+    int n_warps = (blockDim.x + WARP_SIZE - 1) / WARP_SIZE;
 
-    extern __shared__ float s_mem[];  // n_keys floats for similarity row
-    float* s_sim = s_mem;
+    __shared__ float s_query_norm[MAX_BLOCK_WARPS];
+    __shared__ float s_inv_query_norm;
+    __shared__ float s_warp_scores[MAX_BLOCK_WARPS][MAX_ROUTING_TOP_K];
+    __shared__ int s_warp_indices[MAX_BLOCK_WARPS][MAX_ROUTING_TOP_K];
 
-    // Compute similarity for all keys
+    float q_norm = 0.0f;
+    for (int i = threadIdx.x; i < dim; i += blockDim.x) {
+        float qi = qv[i];
+        q_norm = fmaf(qi, qi, q_norm);
+    }
+    q_norm = warp_reduce_sum(q_norm);
+
+    if (lane == 0)
+        s_query_norm[warp_id] = q_norm;
+    __syncthreads();
+
+    if (warp_id == 0) {
+        float block_q_norm = (lane < n_warps) ? s_query_norm[lane] : 0.0f;
+        block_q_norm = warp_reduce_sum(block_q_norm);
+        if (lane == 0)
+            s_inv_query_norm = 1.0f / sqrtf(fmaxf(block_q_norm, SHIP_EPS));
+    }
+    __syncthreads();
+
+    float inv_query_norm = s_inv_query_norm;
+    float local_scores[MAX_ROUTING_TOP_K];
+    int local_indices[MAX_ROUTING_TOP_K];
+
+#pragma unroll
+    for (int i = 0; i < MAX_ROUTING_TOP_K; ++i) {
+        local_scores[i] = COSINE_SENTINEL;
+        local_indices[i] = INT_MAX;
+    }
+
     for (int k = threadIdx.x; k < n_keys; k += blockDim.x) {
         const float* kv = keys + (long)k * dim;
-
-        float dot   = 0.0f;
-        float norm_q = 0.0f;
+        float dot = 0.0f;
         float norm_k = 0.0f;
 
         for (int i = 0; i < dim; ++i) {
             float qi = qv[i];
             float ki = kv[i];
-            dot    = fmaf(qi, ki, dot);
-            norm_q = fmaf(qi, qi, norm_q);
+            dot = fmaf(qi, ki, dot);
             norm_k = fmaf(ki, ki, norm_k);
         }
 
-        float denom = sqrtf(norm_q) * sqrtf(norm_k) + SHIP_EPS;
-        s_sim[k] = dot / denom;
-        similarities[(long)q * n_keys + k] = s_sim[k];
+        float similarity = dot * inv_query_norm / sqrtf(fmaxf(norm_k, SHIP_EPS));
+        similarities[(long)q * n_keys + k] = similarity;
+        topk_insert(similarity, k, local_scores, local_indices, actual_k);
+    }
+
+    int local_cursor = 0;
+    float candidate_score = local_scores[0];
+    int candidate_idx = local_indices[0];
+
+    for (int slot = 0; slot < actual_k; ++slot) {
+        float best_score = candidate_score;
+        int best_idx = candidate_idx;
+        int best_lane = lane;
+        warp_reduce_best(best_score, best_idx, best_lane);
+
+        if (lane == 0) {
+            s_warp_scores[warp_id][slot] = best_score;
+            s_warp_indices[warp_id][slot] = (best_score > COSINE_SENTINEL) ? best_idx : -1;
+        }
+
+        if (lane == best_lane) {
+            ++local_cursor;
+            candidate_score = (local_cursor < actual_k) ? local_scores[local_cursor] : COSINE_SENTINEL;
+            candidate_idx = (local_cursor < actual_k) ? local_indices[local_cursor] : INT_MAX;
+        }
     }
     __syncthreads();
 
-    // Thread 0 selects top-k indices (simple selection, K ≤ WARP_SIZE)
-    if (threadIdx.x == 0) {
-        int actual_k = (top_k < n_keys) ? top_k : n_keys;
-        int* out_idx = top_k_indices + q * top_k;
+    if (warp_id == 0) {
+        int warp_cursor = 0;
+        float warp_score = (lane < n_warps) ? s_warp_scores[lane][0] : COSINE_SENTINEL;
+        int warp_index = (lane < n_warps) ? s_warp_indices[lane][0] : INT_MAX;
 
-        // Track which keys have been selected
-        // Using a small visited bitmask stored in registers (up to 32 keys)
-        for (int t = 0; t < actual_k; ++t) {
-            float best_val = -2.0f;
-            int   best_idx = -1;
+        for (int slot = 0; slot < actual_k; ++slot) {
+            float best_score = warp_score;
+            int best_idx = warp_index;
+            int best_lane = lane;
+            warp_reduce_best(best_score, best_idx, best_lane);
 
-            for (int k = 0; k < n_keys; ++k) {
-                // Skip already-selected (mark as -2.0 after selection)
-                if (s_sim[k] > best_val) {
-                    best_val = s_sim[k];
-                    best_idx = k;
-                }
+            if (lane == 0)
+                out_idx[slot] = (best_score > COSINE_SENTINEL) ? best_idx : -1;
+
+            if (lane == best_lane && lane < n_warps) {
+                ++warp_cursor;
+                warp_score = (warp_cursor < actual_k) ? s_warp_scores[lane][warp_cursor] : COSINE_SENTINEL;
+                warp_index = (warp_cursor < actual_k) ? s_warp_indices[lane][warp_cursor] : INT_MAX;
             }
-
-            out_idx[t] = best_idx;
-            if (best_idx >= 0) s_sim[best_idx] = -2.0f; // mark selected
         }
-
-        // Fill remaining slots with -1 if top_k > actual_k
-        for (int t = actual_k; t < top_k; ++t)
-            out_idx[t] = -1;
     }
+
+    for (int t = actual_k + threadIdx.x; t < top_k; t += blockDim.x)
+        out_idx[t] = -1;
 }

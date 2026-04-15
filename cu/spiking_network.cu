@@ -9,6 +9,9 @@
 //    reset_membrane       — reset membrane to resting potential
 //    stdp_update          — spike-timing-dependent plasticity
 //    neuro_bias_logits    — add neuromodulator bias to logit array
+//    membrane_dv_dt_reduce_pass1 — per-block reduction of |dv/dt|
+//    routing_entropy_reduce_pass1 — per-block reduction of routing entropy
+//    latent_reduce_pass2          — final reduction of pass1 partials
 //
 //  Parameters follow the 16-neuron / 16-channel architecture in
 //  neuro-spike-core/src/snn/engine.rs.
@@ -57,6 +60,7 @@ void poisson_encode(
     float threshold = stimuli[tid];
     threshold = fmaxf(0.0f, fminf(1.0f, threshold));
 
+    rng = lcg_next(rng);
     float r = lcg_float(rng);
     spikes[tid] = (r < threshold) ? 1u : 0u;
 }
@@ -90,11 +94,9 @@ void lif_step(
     unsigned int spike = 0u;
 
     if (ref > 0u) {
-        // Absolute refractory period: clamp membrane at reset
         v = LIF_RESET;
         refract[tid] = ref - 1u;
     } else {
-        // Leaky integration
         v = fmaf(LIF_DECAY, v, I_ext[tid]);
 
         if (v >= LIF_THRESHOLD) {
@@ -134,9 +136,8 @@ void lif_step_weighted(
     int n_neurons,
     int n_inputs)
 {
-    extern __shared__ float s_inputs[];   // n_inputs floats cached in SMEM
+    extern __shared__ float s_inputs[];
 
-    // Cooperatively load input spikes into shared memory
     for (int i = threadIdx.x; i < n_inputs; i += blockDim.x)
         s_inputs[i] = input_spikes[i];
     __syncthreads();
@@ -152,7 +153,6 @@ void lif_step_weighted(
         v = LIF_RESET;
         refract[tid] = ref - 1u;
     } else {
-        // Dot product: I = W[tid, :] · spikes
         const float* w_row = weights + (long)tid * n_inputs;
         float I = 0.0f;
         for (int j = 0; j < n_inputs; ++j)
@@ -251,34 +251,29 @@ void stdp_update(
     int n_pre,
     float dt_ms)
 {
-    // One thread per (post, pre) synapse — 2-D grid if needed
     int post = blockIdx.y * blockDim.y + threadIdx.y;
     int pre  = blockIdx.x * blockDim.x + threadIdx.x;
     if (post >= n_post || pre >= n_pre) return;
 
-    // Decay factor shared across the warp row
     float decay = __expf(-dt_ms / STDP_TAU);
 
-    // Update traces (only threads on diagonal do the scalar work;
-    // all threads read from pre/post arrays already in L2)
-    float pre_tr, post_tr;
-    if (pre < n_pre)  pre_tr  = fmaf(decay, pre_traces[pre],   pre_spikes[pre]);
-    if (post < n_post) post_tr = fmaf(decay, post_traces[post], post_spikes[post]);
+    float pre_tr  = fmaf(decay, pre_traces[pre],  pre_spikes[pre]);
+    float post_tr = fmaf(decay, post_traces[post], post_spikes[post]);
 
-    // Write traces (avoid races: each row-thread writes its own pre)
-    if (threadIdx.y == 0 && pre < n_pre)   pre_traces[pre]   = pre_tr;
-    if (threadIdx.x == 0 && post < n_post) post_traces[post] = post_tr;
+    if (threadIdx.y == 0) {
+        pre_traces[pre] = pre_tr;
+    }
+    if (threadIdx.x == 0) {
+        post_traces[post] = post_tr;
+    }
 
-    // Weight update
     long idx = (long)post * n_pre + pre;
     float w = weights[idx];
 
     float ps = post_spikes[post];
     float prs = pre_spikes[pre];
 
-    // LTP: post fired — potentiate weights from active pre traces
     w += STDP_A_PLUS  * ps  * pre_tr;
-    // LTD: pre fired  — depress weights to inactive post traces
     w -= STDP_A_MINUS * prs * post_tr;
 
     w = fmaxf(STDP_W_MIN, fminf(STDP_W_MAX, w));
@@ -310,4 +305,176 @@ void neuro_bias_logits(
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= n) return;
     logits[tid] = fmaf(scale, bias[tid], logits[tid]);
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  membrane_dv_dt_reduce_pass1
+//
+//  Computes block partials for:
+//    abs_dv_dt_i = abs(membrane_now[i] - membrane_prev[i]) / dt
+//  Emits per-block:
+//    partial_sum[blockIdx.x] = sum(abs_dv_dt_i)
+//    partial_max[blockIdx.x] = max(abs_dv_dt_i)
+//
+//  Host performs a second GPU pass (`latent_reduce_pass2`) over partials.
+// ════════════════════════════════════════════════════════════════════
+extern "C" __global__
+void membrane_dv_dt_reduce_pass1(
+    const float* __restrict__ membrane_prev,
+    const float* __restrict__ membrane_now,
+    float* __restrict__ partial_sum,
+    float* __restrict__ partial_max,
+    int n_neurons,
+    float dt)
+{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    float inv_dt = 1.0f / fmaxf(fabsf(dt), SHIP_EPS);
+    float x = 0.0f;
+
+    if (tid < n_neurons) {
+        x = fabsf(membrane_now[tid] - membrane_prev[tid]) * inv_dt;
+    }
+
+    float sum_v = warp_reduce_sum(x);
+    float max_v = warp_reduce_max(x);
+
+    int lane = threadIdx.x & (WARP_SIZE - 1);
+    int warp_id = threadIdx.x / WARP_SIZE;
+    int n_warps = (blockDim.x + WARP_SIZE - 1) / WARP_SIZE;
+
+    __shared__ float s_sum[32];
+    __shared__ float s_max[32];
+
+    if (lane == 0) {
+        s_sum[warp_id] = sum_v;
+        s_max[warp_id] = max_v;
+    }
+    __syncthreads();
+
+    if (warp_id == 0) {
+        float bsum = (threadIdx.x < n_warps) ? s_sum[lane] : 0.0f;
+        float bmax = (threadIdx.x < n_warps) ? s_max[lane] : 0.0f;
+        bsum = warp_reduce_sum(bsum);
+        bmax = warp_reduce_max(bmax);
+
+        if (threadIdx.x == 0) {
+            partial_sum[blockIdx.x] = bsum;
+            partial_max[blockIdx.x] = bmax;
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  routing_entropy_reduce_pass1
+//
+//  Computes routing entropy per node:
+//    H(node) = -sum_j p(node,j) * log2(p(node,j))
+//  Expects row-major probabilities:
+//    routing_probs [n_nodes x n_routes]
+//
+//  Emits per-block partial sum/max of H(node).
+// ════════════════════════════════════════════════════════════════════
+extern "C" __global__
+void routing_entropy_reduce_pass1(
+    const float* __restrict__ routing_probs,
+    float* __restrict__ partial_sum,
+    float* __restrict__ partial_max,
+    int n_nodes,
+    int n_routes)
+{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    float entropy = 0.0f;
+
+    if (tid < n_nodes) {
+        const float* row = routing_probs + (long)tid * n_routes;
+        for (int r = 0; r < n_routes; ++r) {
+            float p = fmaxf(row[r], 0.0f);
+            if (p > SHIP_EPS) {
+                entropy = fmaf(-p, log2f(p), entropy);
+            }
+        }
+    }
+
+    float sum_v = warp_reduce_sum(entropy);
+    float max_v = warp_reduce_max(entropy);
+
+    int lane = threadIdx.x & (WARP_SIZE - 1);
+    int warp_id = threadIdx.x / WARP_SIZE;
+    int n_warps = (blockDim.x + WARP_SIZE - 1) / WARP_SIZE;
+
+    __shared__ float s_sum[32];
+    __shared__ float s_max[32];
+
+    if (lane == 0) {
+        s_sum[warp_id] = sum_v;
+        s_max[warp_id] = max_v;
+    }
+    __syncthreads();
+
+    if (warp_id == 0) {
+        float bsum = (threadIdx.x < n_warps) ? s_sum[lane] : 0.0f;
+        float bmax = (threadIdx.x < n_warps) ? s_max[lane] : 0.0f;
+        bsum = warp_reduce_sum(bsum);
+        bmax = warp_reduce_max(bmax);
+
+        if (threadIdx.x == 0) {
+            partial_sum[blockIdx.x] = bsum;
+            partial_max[blockIdx.x] = bmax;
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  latent_reduce_pass2
+//
+//  Final reduction over pass1 partials:
+//    out_sum[0] = sum(partial_sum[0..n_partials))
+//    out_max[0] = max(partial_max[0..n_partials))
+//
+//  Intended launch: a single block (e.g. 256 threads).
+// ════════════════════════════════════════════════════════════════════
+extern "C" __global__
+__launch_bounds__(256)
+void latent_reduce_pass2(
+    const float* __restrict__ partial_sum,
+    const float* __restrict__ partial_max,
+    float* __restrict__ out_sum,
+    float* __restrict__ out_max,
+    int n_partials)
+{
+    int tid = threadIdx.x;
+    float local_sum = 0.0f;
+    float local_max = 0.0f;
+
+    for (int i = tid; i < n_partials; i += blockDim.x) {
+        local_sum += partial_sum[i];
+        local_max = fmaxf(local_max, partial_max[i]);
+    }
+
+    float sum_v = warp_reduce_sum(local_sum);
+    float max_v = warp_reduce_max(local_max);
+
+    int lane = tid & (WARP_SIZE - 1);
+    int warp_id = tid / WARP_SIZE;
+    int n_warps = (blockDim.x + WARP_SIZE - 1) / WARP_SIZE;
+
+    __shared__ float s_sum[32];
+    __shared__ float s_max[32];
+
+    if (lane == 0) {
+        s_sum[warp_id] = sum_v;
+        s_max[warp_id] = max_v;
+    }
+    __syncthreads();
+
+    if (warp_id == 0) {
+        float bsum = (tid < n_warps) ? s_sum[lane] : 0.0f;
+        float bmax = (tid < n_warps) ? s_max[lane] : 0.0f;
+        bsum = warp_reduce_sum(bsum);
+        bmax = warp_reduce_max(bmax);
+        if (tid == 0) {
+            out_sum[0] = bsum;
+            out_max[0] = bmax;
+        }
+    }
 }
