@@ -1,0 +1,22 @@
+# Build outputs
+target/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeLists.txt
+cmake_install.cmake
+Makefile
+libmyelin_accelerator.a
+test.ptx
+
+# IDE and editor state
+.idea/
+.clangd
+.junie/
+
+# Generated PTX and intermediate files
+*.ptx
+
+# Cargo / Rust scratch files
+*.rmeta
+*.rlib
