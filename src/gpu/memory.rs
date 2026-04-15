@@ -2,8 +2,8 @@
 //  gpu/memory.rs — GPU device buffer wrapper
 // ════════════════════════════════════════════════════════════════════
 
-use cust::memory::{DeviceBuffer, CopyDestination};
 use crate::gpu::error::{GpuError, GpuResult};
+use cust::memory::{CopyDestination, DeviceBuffer};
 
 /// Owned device buffer of type `T`.
 pub struct GpuBuffer<T: cust::memory::DeviceCopy> {
@@ -25,7 +25,10 @@ impl<T: cust::memory::DeviceCopy + Default + Clone> GpuBuffer<T> {
     pub fn from_slice(data: &[T]) -> GpuResult<Self> {
         let inner = DeviceBuffer::from_slice(data)
             .map_err(|e| GpuError::MemoryError(format!("from_slice: {e:?}")))?;
-        Ok(Self { inner, len: data.len() })
+        Ok(Self {
+            inner,
+            len: data.len(),
+        })
     }
 
     /// Download device data into a freshly-allocated `Vec<T>`.
@@ -45,7 +48,9 @@ impl<T: cust::memory::DeviceCopy + Default + Clone> GpuBuffer<T> {
     }
 
     /// Number of elements.
-    pub fn len(&self) -> usize { self.len }
+    pub fn len(&self) -> usize {
+        self.len
+    }
 
     /// Raw device pointer (for kernel launches via `cust`).
     pub fn as_device_ptr(&self) -> cust::memory::DevicePointer<T> {

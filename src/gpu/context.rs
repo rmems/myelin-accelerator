@@ -2,9 +2,9 @@
 //  gpu/context.rs — CUDA device context initialisation
 // ════════════════════════════════════════════════════════════════════
 
+use crate::gpu::error::{GpuError, GpuResult};
 use cust::context::Context;
 use cust::device::Device;
-use crate::gpu::error::{GpuError, GpuResult};
 
 /// Owns a CUDA primary context for device 0.
 pub struct GpuContext {
@@ -28,7 +28,6 @@ impl GpuContext {
 
     /// Returns `true` when a CUDA device is accessible.
     pub fn is_available() -> bool {
-        cust::init(cust::CudaFlags::empty()).is_ok()
-            && Device::get_device(0).is_ok()
+        cust::init(cust::CudaFlags::empty()).is_ok() && Device::get_device(0).is_ok()
     }
 }

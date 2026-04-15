@@ -35,9 +35,9 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     let kernels: &[(&str, &str)] = &[
-        ("spiking_network.cu",  "spiking_network_sm_120.ptx"),
-        ("vector_similarity.cu","vector_similarity_sm_120.ptx"),
-        ("satsolver.cu",       "satsolver_sm_120.ptx"),
+        ("spiking_network.cu", "spiking_network_sm_120.ptx"),
+        ("vector_similarity.cu", "vector_similarity_sm_120.ptx"),
+        ("satsolver.cu", "satsolver_sm_120.ptx"),
     ];
 
     // ── Check whether nvcc is available ──────────────────────────────
@@ -48,7 +48,9 @@ fn main() {
         .unwrap_or(false);
 
     if !nvcc_ok {
-        println!("cargo:warning=nvcc not found — writing stub PTX files; GPU unavailable at runtime");
+        println!(
+            "cargo:warning=nvcc not found — writing stub PTX files; GPU unavailable at runtime"
+        );
         for &(_, ptx_name) in kernels {
             fs::write(out_dir.join(ptx_name), PTX_STUB)
                 .unwrap_or_else(|e| panic!("Failed to write stub PTX {ptx_name}: {e}"));
@@ -62,16 +64,19 @@ fn main() {
         let output = out_dir.join(ptx_name);
 
         let status = Command::new("nvcc")
-            .arg("-ptx")                             // Output PTX text (not binary CUBIN)
-            .arg("-arch=sm_120")                     // Blackwell virtual architecture
+            .arg("-ptx") // Output PTX text (not binary CUBIN)
+            .arg("-arch=sm_120") // Blackwell virtual architecture
             .arg("-O3")
             .arg("--use_fast_math")
             .arg("--restrict")
-            .arg("--threads").arg("0")
+            .arg("--threads")
+            .arg("0")
             .arg("-D__STRICT_ANSI__")
-            .arg("--allow-unsupported-compiler")     // GCC 15 on Fedora 43
-            .arg("-I").arg(&cu_dir)                  // Include cu/ for common.cuh
-            .arg("-o").arg(&output)
+            .arg("--allow-unsupported-compiler") // GCC 15 on Fedora 43
+            .arg("-I")
+            .arg(&cu_dir) // Include cu/ for common.cuh
+            .arg("-o")
+            .arg(&output)
             .arg(&source)
             .status()
             .unwrap_or_else(|e| panic!("Failed to invoke nvcc for {cu_name}: {e}"));
@@ -97,7 +102,9 @@ fn main() {
 
 /// Rewrite `.version OLD` → `.version NEW` in a PTX text file, in-place.
 fn patch_ptx_version(path: &std::path::Path, old_ver: &str, new_ver: &str) {
-    let Ok(text) = fs::read_to_string(path) else { return };
+    let Ok(text) = fs::read_to_string(path) else {
+        return;
+    };
     let old_directive = format!(".version {old_ver}");
     let new_directive = format!(".version {new_ver}");
     if text.contains(&old_directive) {
