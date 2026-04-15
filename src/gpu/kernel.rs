@@ -72,6 +72,9 @@ impl KernelModule {
                 "reset_membrane",
                 "stdp_update",
                 "neuro_bias_logits",
+                "membrane_dv_dt_reduce_pass1",
+                "routing_entropy_reduce_pass1",
+                "latent_reduce_pass2",
             ],
         )?;
 
@@ -90,6 +93,8 @@ impl KernelModule {
                 "satsolver_aux_update",
                 "satsolver_check_solution",
                 "satsolver_extract",
+                "satsolver_best_reduce_pass1",
+                "satsolver_best_reduce_pass2",
             ],
         )?;
 
