@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  cpu-checks:
+    name: CPU checks (no CUDA)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo test (default features)
+        run: cargo test --locked
+
+      - name: Cargo build (explicit no-default-features)
+        run: cargo build --locked --no-default-features
+
+  cuda-smoke:
+    name: CUDA smoke (real nvcc + driver)
+    runs-on: [self-hosted, linux, x64, gpu, cuda]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: CUDA diagnostics
+        run: |
+          nvidia-smi
+          nvcc --version
+
+      - name: Build with CUDA feature
+        env:
+          MYELIN_CUDA_ARCH: sm_120
+          MYELIN_PTX_VERSION: "8.5"
+        run: cargo build --locked --features cuda -vv
+
+      - name: Verify generated PTX is non-stub
+        shell: bash
+        run: |
+          set -euo pipefail
+          ptx_dir=$(find target/debug/build -type d -path '*/out' | head -n 1)
+          test -n "$ptx_dir"
+
+          for f in spiking_network_sm_120.ptx vector_similarity_sm_120.ptx satsolver_sm_120.ptx; do
+            test -f "$ptx_dir/$f"
+            # Stub PTX uses .target sm_80; real compile for this repo should be sm_120.
+            grep -q '^\.target sm_120' "$ptx_dir/$f"
+          done
+
+      - name: Run tests with CUDA feature
+        run: cargo test --locked --features cuda
