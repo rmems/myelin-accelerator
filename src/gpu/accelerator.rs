@@ -4,6 +4,7 @@ use crate::gpu::kernel::KernelModule;
 use crate::gpu::memory::GpuBuffer;
 use cust::launch;
 use cust::stream::{Stream, StreamFlags};
+use std::cell::RefCell;
 use tracing::warn;
 
 const SATSOLVER_BLOCK_SIZE: u32 = 256;
@@ -13,6 +14,8 @@ pub struct GpuAccelerator {
     _ctx: Option<GpuContext>,
     modules: Option<KernelModule>,
     stream: Option<Stream>,
+    aux_partial_scores: RefCell<Option<GpuBuffer<i32>>>,
+    aux_partial_walkers: RefCell<Option<GpuBuffer<i32>>>,
 }
 
 impl GpuAccelerator {
@@ -26,6 +29,8 @@ impl GpuAccelerator {
                     _ctx: Some(ctx),
                     modules: Some(modules),
                     stream: Some(stream),
+                    aux_partial_scores: RefCell::new(None),
+                    aux_partial_walkers: RefCell::new(None),
                 },
                 (Err(e), _) => {
                     warn!("[GPU] PTX load failed (CPU fallback): {e}");
@@ -33,6 +38,8 @@ impl GpuAccelerator {
                         _ctx: Some(ctx),
                         modules: None,
                         stream: None,
+                        aux_partial_scores: RefCell::new(None),
+                        aux_partial_walkers: RefCell::new(None),
                     }
                 }
                 (_, Err(e)) => {
@@ -41,6 +48,8 @@ impl GpuAccelerator {
                         _ctx: Some(ctx),
                         modules: None,
                         stream: None,
+                        aux_partial_scores: RefCell::new(None),
+                        aux_partial_walkers: RefCell::new(None),
                     }
                 }
             },
@@ -50,6 +59,8 @@ impl GpuAccelerator {
                     _ctx: None,
                     modules: None,
                     stream: None,
+                    aux_partial_scores: RefCell::new(None),
+                    aux_partial_walkers: RefCell::new(None),
                 }
             }
         }
@@ -227,8 +238,14 @@ impl GpuAccelerator {
         let grid_x = Self::ceil_div_u32(n_walkers as u32, SATSOLVER_BLOCK_SIZE);
         let block = SATSOLVER_BLOCK_SIZE;
         let partial_len = grid_x as usize;
-        let partial_scores = GpuBuffer::<i32>::alloc(partial_len)?;
-        let partial_walkers = GpuBuffer::<i32>::alloc(partial_len)?;
+        let mut partial_scores = self.aux_partial_scores.borrow_mut();
+        let mut partial_walkers = self.aux_partial_walkers.borrow_mut();
+        if partial_scores.as_ref().is_none_or(|b| b.len() < partial_len) {
+            *partial_scores = Some(GpuBuffer::<i32>::alloc(partial_len)?);
+            *partial_walkers = Some(GpuBuffer::<i32>::alloc(partial_len)?);
+        }
+        let partial_scores = partial_scores.as_ref().expect("partial_scores buffer");
+        let partial_walkers = partial_walkers.as_ref().expect("partial_walkers buffer");
 
         unsafe {
             launch!(satsolver_aux_update<<<grid_x, block, SATSOLVER_SHARED_MEM_BYTES, stream>>>(
@@ -256,11 +273,6 @@ impl GpuAccelerator {
                 GpuError::LaunchFailed(format!("satsolver_best_reduce_pass2 launch: {e:?}"))
             })?;
         }
-
-        // Ensure temporary partial buffers are not dropped while kernels are in-flight.
-        stream.synchronize().map_err(|e| {
-            GpuError::LaunchFailed(format!("satsolver_aux_reduce_best async sync: {e:?}"))
-        })?;
 
         Ok(())
     }

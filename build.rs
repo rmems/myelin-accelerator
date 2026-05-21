@@ -135,6 +135,7 @@ fn compile_to_ptx(nvcc: &Path, cu_dir: &Path, source: &Path, output: &Path, arch
         .arg("--restrict")
         .arg("--threads")
         .arg(threads)
+        .arg("-D__STRICT_ANSI__")
         .arg("--allow-unsupported-compiler")
         .arg("-I")
         .arg(cu_dir)

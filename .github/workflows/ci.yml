@@ -56,8 +56,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pkg_hash=$(ls -d target/debug/build/myelin-accelerator-* | head -n 1)
-          ptx_dir="$pkg_hash/out"
+          ptx_dir=""
+          for d in target/debug/build/myelin-accelerator-*/out; do
+            if [[ -d "$d" ]]; then
+              ptx_dir="$d"
+              break
+            fi
+          done
           test -n "$ptx_dir"
           test -d "$ptx_dir"
 
