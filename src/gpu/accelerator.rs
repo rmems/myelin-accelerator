@@ -230,6 +230,39 @@ impl GpuAccelerator {
         Ok(())
     }
 
+    /// Convert a normalised float stimulus [0,1] into a Poisson spike (0/1) for each input channel.
+    pub fn poisson_encode(
+        &self,
+        stimuli: &GpuBuffer<f32>,
+        spikes: &mut GpuBuffer<u32>,
+        seed: u32,
+    ) -> GpuResult<()> {
+        let n = stimuli.len();
+        Self::expect_len("spikes", spikes.len(), n)?;
+
+        let kernels = self.kernels()?;
+        let func = kernels.get_function("poisson_encode")?;
+        let stream = Self::new_stream()?;
+        
+        let block = 256;
+        let grid = Self::ceil_div_u32(n as u32, block);
+
+        unsafe {
+            launch!(func<<<grid, block, 0, stream>>>(
+                stimuli.as_device_ptr(),
+                spikes.as_device_ptr(),
+                n as i32,
+                seed,
+            ))
+            .map_err(|e| GpuError::LaunchFailed(format!("poisson_encode launch: {e:?}")))?;
+        }
+
+        stream.synchronize().map_err(|e| {
+            GpuError::LaunchFailed(format!("poisson_encode sync: {e:?}"))
+        })?;
+        Ok(())
+    }
+
     fn new_stream() -> GpuResult<Stream> {
         Stream::new(StreamFlags::DEFAULT, None)
             .map_err(|e| GpuError::LaunchFailed(format!("stream creation failed: {e:?}")))
