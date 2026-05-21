@@ -243,7 +243,7 @@ impl GpuAccelerator {
         let kernels = self.kernels()?;
         let func = kernels.get_function("poisson_encode")?;
         let stream = Self::new_stream()?;
-        
+
         let block = 256;
         let grid = Self::ceil_div_u32(n as u32, block);
 
@@ -257,9 +257,9 @@ impl GpuAccelerator {
             .map_err(|e| GpuError::LaunchFailed(format!("poisson_encode launch: {e:?}")))?;
         }
 
-        stream.synchronize().map_err(|e| {
-            GpuError::LaunchFailed(format!("poisson_encode sync: {e:?}"))
-        })?;
+        stream
+            .synchronize()
+            .map_err(|e| GpuError::LaunchFailed(format!("poisson_encode sync: {e:?}")))?;
         Ok(())
     }
 

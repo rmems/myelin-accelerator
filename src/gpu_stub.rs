@@ -31,32 +31,97 @@ impl std::error::Error for GpuError {}
 
 pub struct GpuContext;
 impl GpuContext {
-    pub fn init() -> GpuResult<Self> { Err(GpuError::NoGpu) }
-    pub fn is_available() -> bool { false }
+    pub fn init() -> GpuResult<Self> {
+        Err(GpuError::NoGpu)
+    }
+    pub fn is_available() -> bool {
+        false
+    }
 }
 
 pub struct KernelModule;
 impl KernelModule {
-    pub fn load() -> GpuResult<Self> { Err(GpuError::NoGpu) }
-    pub fn load_satsolver() -> GpuResult<Self> { Err(GpuError::NoGpu) }
+    pub fn load() -> GpuResult<Self> {
+        Err(GpuError::NoGpu)
+    }
+    pub fn load_satsolver() -> GpuResult<Self> {
+        Err(GpuError::NoGpu)
+    }
 }
 
-pub struct GpuBuffer<T> { data: Vec<T> }
+pub struct GpuBuffer<T> {
+    data: Vec<T>,
+}
 impl<T: Default + Clone> GpuBuffer<T> {
-    pub fn alloc(len: usize) -> GpuResult<Self> { Ok(Self { data: vec![T::default(); len] }) }
-    pub fn from_slice(data: &[T]) -> GpuResult<Self> { Ok(Self { data: data.to_vec() }) }
-    pub fn to_vec(&self) -> GpuResult<Vec<T>> { Ok(self.data.clone()) }
-    pub fn upload(&mut self, data: &[T]) -> GpuResult<()> { self.data.clone_from_slice(data); Ok(()) }
-    pub fn len(&self) -> usize { self.data.len() }
+    pub fn alloc(len: usize) -> GpuResult<Self> {
+        Ok(Self {
+            data: vec![T::default(); len],
+        })
+    }
+    pub fn from_slice(data: &[T]) -> GpuResult<Self> {
+        Ok(Self {
+            data: data.to_vec(),
+        })
+    }
+    pub fn to_vec(&self) -> GpuResult<Vec<T>> {
+        Ok(self.data.clone())
+    }
+    pub fn upload(&mut self, data: &[T]) -> GpuResult<()> {
+        self.data.clone_from_slice(data);
+        Ok(())
+    }
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
 }
 
 pub struct GpuAccelerator;
 impl GpuAccelerator {
-    pub fn new() -> Self { Self }
-    pub fn is_ready(&self) -> bool { false }
-    pub fn kernels(&self) -> GpuResult<&KernelModule> { Err(GpuError::NoGpu) }
-    pub fn satsolver_extract(&self, _: &GpuBuffer<u8>, _: &GpuBuffer<i32>, _: &mut GpuBuffer<u8>, _: i32, _: i32) -> GpuResult<()> { Err(GpuError::NoGpu) }
-    pub fn satsolver_aux_reduce_best(&self, _: &GpuBuffer<u8>, _: &mut GpuBuffer<u8>, _: &GpuBuffer<i32>, _: &mut GpuBuffer<i32>, _: &mut GpuBuffer<i32>, _: &GpuBuffer<i32>, _: i32, _: i32, _: i32, _: i32) -> GpuResult<()> { Err(GpuError::NoGpu) }
-    pub fn poisson_encode(&self, _: &GpuBuffer<f32>, _: &mut GpuBuffer<u32>, _: u32) -> GpuResult<()> { Err(GpuError::NoGpu) }
+    pub fn new() -> Self {
+        Self
+    }
+    pub fn is_ready(&self) -> bool {
+        false
+    }
+    pub fn kernels(&self) -> GpuResult<&KernelModule> {
+        Err(GpuError::NoGpu)
+    }
+    pub fn satsolver_extract(
+        &self,
+        _: &GpuBuffer<u8>,
+        _: &GpuBuffer<i32>,
+        _: &mut GpuBuffer<u8>,
+        _: i32,
+        _: i32,
+    ) -> GpuResult<()> {
+        Err(GpuError::NoGpu)
+    }
+    pub fn satsolver_aux_reduce_best(
+        &self,
+        _: &GpuBuffer<u8>,
+        _: &mut GpuBuffer<u8>,
+        _: &GpuBuffer<i32>,
+        _: &mut GpuBuffer<i32>,
+        _: &mut GpuBuffer<i32>,
+        _: &GpuBuffer<i32>,
+        _: i32,
+        _: i32,
+        _: i32,
+        _: i32,
+    ) -> GpuResult<()> {
+        Err(GpuError::NoGpu)
+    }
+    pub fn poisson_encode(
+        &self,
+        _: &GpuBuffer<f32>,
+        _: &mut GpuBuffer<u32>,
+        _: u32,
+    ) -> GpuResult<()> {
+        Err(GpuError::NoGpu)
+    }
 }
-impl Default for GpuAccelerator { fn default() -> Self { Self::new() } }
+impl Default for GpuAccelerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
