@@ -31,7 +31,7 @@ jobs:
 
   cuda-smoke:
     name: CUDA smoke (real nvcc + driver)
-    if: github.event_name == 'workflow_dispatch' && inputs.run_cuda_smoke == 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.run_cuda_smoke == true
     runs-on: [self-hosted, linux, x64, gpu, cuda]
     timeout-minutes: 20
     steps:
