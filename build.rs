@@ -30,6 +30,13 @@ fn main() {
         println!("cargo:rerun-if-changed=cu/{cu_name}");
     }
 
+    let cuda_feature_enabled = env::var("CARGO_FEATURE_CUDA").is_ok();
+    if !cuda_feature_enabled {
+        emit_stub_ptx(&out_dir);
+        println!("cargo:warning=cuda feature not enabled; wrote stub PTX files");
+        return;
+    }
+
     let nvcc = find_nvcc();
     let arch = env::var("MYELIN_CUDA_ARCH").unwrap_or_else(|_| "sm_120".to_string());
     let ptx_version =
