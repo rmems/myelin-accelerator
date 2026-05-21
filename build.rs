@@ -82,12 +82,28 @@ fn find_nvcc() -> Option<PathBuf> {
     }
 
     let candidate = PathBuf::from(exe_name("nvcc"));
-    Command::new(&candidate)
-        .arg("--version")
-        .status()
-        .ok()
-        .filter(|s| s.success())
-        .map(|_| candidate)
+    if is_nvcc_binary(&candidate) {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+fn is_nvcc_binary(path: &Path) -> bool {
+    let Ok(out) = Command::new(path).arg("--version").output() else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    let mut blob = String::new();
+    if let Ok(s) = String::from_utf8(out.stdout) {
+        blob.push_str(&s);
+    }
+    if let Ok(s) = String::from_utf8(out.stderr) {
+        blob.push_str(&s);
+    }
+    blob.to_ascii_lowercase().contains("nvcc")
 }
 
 fn exe_name(base: &str) -> OsString {
@@ -165,7 +181,13 @@ fn patch_ptx_version_any(path: &Path, new_ver: &str) {
         .join("\n");
 
     if replaced {
-        fs::write(path, format!("{patched}\n"))
+        let had_trailing_newline = text.ends_with('\n');
+        let output = if had_trailing_newline {
+            format!("{patched}\n")
+        } else {
+            patched
+        };
+        fs::write(path, output)
             .unwrap_or_else(|e| panic!("Failed to patch PTX version in {}: {e}", path.display()));
     }
 }
