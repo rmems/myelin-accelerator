@@ -67,6 +67,13 @@ impl<T: Default + Clone> GpuBuffer<T> {
         Ok(self.data.clone())
     }
     pub fn upload(&mut self, data: &[T]) -> GpuResult<()> {
+        if data.len() != self.data.len() {
+            return Err(GpuError::MemoryError(format!(
+                "upload: length mismatch, buffer has {} elements but input has {}",
+                self.data.len(),
+                data.len()
+            )));
+        }
         self.data.clone_from_slice(data);
         Ok(())
     }
@@ -117,6 +124,46 @@ impl GpuAccelerator {
         _: &mut GpuBuffer<u32>,
         _: u32,
     ) -> GpuResult<()> {
+        Err(GpuError::NoGpu)
+    }
+
+    pub fn satsolver_extract_async(
+        &self,
+        _: &GpuBuffer<u8>,
+        _: &GpuBuffer<i32>,
+        _: &mut GpuBuffer<u8>,
+        _: i32,
+        _: i32,
+    ) -> GpuResult<()> {
+        Err(GpuError::NoGpu)
+    }
+
+    pub fn satsolver_aux_reduce_best_async(
+        &self,
+        _: &GpuBuffer<u8>,
+        _: &mut GpuBuffer<u8>,
+        _: &GpuBuffer<i32>,
+        _: &mut GpuBuffer<i32>,
+        _: &mut GpuBuffer<i32>,
+        _: &GpuBuffer<i32>,
+        _: i32,
+        _: i32,
+        _: i32,
+        _: i32,
+    ) -> GpuResult<()> {
+        Err(GpuError::NoGpu)
+    }
+
+    pub fn poisson_encode_async(
+        &self,
+        _: &GpuBuffer<f32>,
+        _: &mut GpuBuffer<u32>,
+        _: u32,
+    ) -> GpuResult<()> {
+        Err(GpuError::NoGpu)
+    }
+
+    pub fn synchronize(&self) -> GpuResult<()> {
         Err(GpuError::NoGpu)
     }
 }
