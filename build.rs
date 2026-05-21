@@ -67,7 +67,7 @@ fn main() {
 fn find_nvcc() -> Option<PathBuf> {
     if let Ok(path) = env::var("CUDA_NVCC") {
         let p = PathBuf::from(path);
-        if p.exists() {
+        if is_nvcc_binary(&p) {
             return Some(p);
         }
     }
@@ -75,7 +75,7 @@ fn find_nvcc() -> Option<PathBuf> {
     for root_var in ["CUDA_HOME", "CUDA_PATH"] {
         if let Ok(root) = env::var(root_var) {
             let p = PathBuf::from(root).join("bin").join(exe_name("nvcc"));
-            if p.exists() {
+            if is_nvcc_binary(&p) {
                 return Some(p);
             }
         }
