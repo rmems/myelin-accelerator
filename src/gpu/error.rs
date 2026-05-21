@@ -33,7 +33,7 @@ impl fmt::Display for GpuError {
             GpuError::MemoryError(s) => write!(f, "GPU memory error: {s}"),
             GpuError::LaunchFailed(s) => write!(f, "Kernel launch failed: {s}"),
             GpuError::CudaError(s) => write!(f, "CUDA error: {s}"),
-            GpuError::NoGpu => write!(f, "No GPU available"),
+            GpuError::NoGpu => write!(f, "No GPU available (or built without `cuda` feature)"),
         }
     }
 }

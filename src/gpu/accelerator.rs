@@ -1,14 +1,3 @@
-// ════════════════════════════════════════════════════════════════════
-//  gpu/accelerator.rs — High-level GPU accelerator facade
-//
-//  GpuAccelerator bundles the CUDA context, loaded PTX modules, and
-//  convenience launchers for the neuro-spike kernel set.
-//
-//  When no GPU is present the struct can still be constructed in
-//  "stub" mode — all kernel calls return GpuError::NoGpu so the
-//  caller can fall back to the CPU engine gracefully.
-// ════════════════════════════════════════════════════════════════════
-
 use crate::gpu::context::GpuContext;
 use crate::gpu::error::{GpuError, GpuResult};
 use crate::gpu::kernel::KernelModule;
@@ -20,28 +9,38 @@ use tracing::warn;
 const SATSOLVER_BLOCK_SIZE: u32 = 256;
 const SATSOLVER_SHARED_MEM_BYTES: u32 = 0;
 
-/// Facade that owns a CUDA context and the compiled PTX modules.
 pub struct GpuAccelerator {
-    /// `None` when running in CPU-only / stub mode.
     _ctx: Option<GpuContext>,
-    /// `None` when PTX modules failed to load.
     modules: Option<KernelModule>,
+    stream: Option<Stream>,
 }
 
 impl GpuAccelerator {
-    /// Attempt to initialise GPU.  Returns a stub if no device is available.
     pub fn new() -> Self {
         match GpuContext::init() {
-            Ok(ctx) => match KernelModule::load() {
-                Ok(modules) => Self {
+            Ok(ctx) => match (
+                KernelModule::load(),
+                Stream::new(StreamFlags::DEFAULT, None),
+            ) {
+                (Ok(modules), Ok(stream)) => Self {
                     _ctx: Some(ctx),
                     modules: Some(modules),
+                    stream: Some(stream),
                 },
-                Err(e) => {
+                (Err(e), _) => {
                     warn!("[GPU] PTX load failed (CPU fallback): {e}");
                     Self {
                         _ctx: Some(ctx),
                         modules: None,
+                        stream: None,
+                    }
+                }
+                (_, Err(e)) => {
+                    warn!("[GPU] stream creation failed (CPU fallback): {e:?}");
+                    Self {
+                        _ctx: Some(ctx),
+                        modules: None,
+                        stream: None,
                     }
                 }
             },
@@ -50,26 +49,40 @@ impl GpuAccelerator {
                 Self {
                     _ctx: None,
                     modules: None,
+                    stream: None,
                 }
             }
         }
     }
 
-    /// `true` if a GPU context and all PTX modules are ready.
     pub fn is_ready(&self) -> bool {
-        self._ctx.is_some() && self.modules.is_some()
+        self._ctx.is_some() && self.modules.is_some() && self.stream.is_some()
     }
 
-    /// Borrow the loaded kernel module, or return an error.
     pub fn kernels(&self) -> GpuResult<&KernelModule> {
         self.modules.as_ref().ok_or(GpuError::NoGpu)
     }
 
-    /// Copy the best SAT walker assignment into `output`.
-    ///
-    /// This wrapper matches the updated CUDA signature and blocks until the
-    /// extract kernel has completed.
+    pub fn synchronize(&self) -> GpuResult<()> {
+        let stream = self.stream.as_ref().ok_or(GpuError::NoGpu)?;
+        stream
+            .synchronize()
+            .map_err(|e| GpuError::LaunchFailed(format!("stream sync: {e:?}")))
+    }
+
     pub fn satsolver_extract(
+        &self,
+        assignment: &GpuBuffer<u8>,
+        best_walker: &GpuBuffer<i32>,
+        output: &mut GpuBuffer<u8>,
+        n_vars: i32,
+        n_walkers: i32,
+    ) -> GpuResult<()> {
+        self.satsolver_extract_async(assignment, best_walker, output, n_vars, n_walkers)?;
+        self.synchronize()
+    }
+
+    pub fn satsolver_extract_async(
         &self,
         assignment: &GpuBuffer<u8>,
         best_walker: &GpuBuffer<i32>,
@@ -103,7 +116,7 @@ impl GpuAccelerator {
 
         let kernels = self.kernels()?;
         let satsolver_extract = kernels.get_function("satsolver_extract")?;
-        let stream = Self::new_stream()?;
+        let stream = self.stream.as_ref().ok_or(GpuError::NoGpu)?;
         let grid = Self::ceil_div_u32(n_vars as u32, SATSOLVER_BLOCK_SIZE);
         let block = SATSOLVER_BLOCK_SIZE;
 
@@ -118,18 +131,38 @@ impl GpuAccelerator {
             .map_err(|e| GpuError::LaunchFailed(format!("satsolver_extract launch: {e:?}")))?;
         }
 
-        stream
-            .synchronize()
-            .map_err(|e| GpuError::LaunchFailed(format!("satsolver_extract sync: {e:?}")))?;
         Ok(())
     }
 
-    /// Recompute SAT clause flags and reduce scores to one `(best_score, best_walker)`
-    /// pair using the two-pass atomics-free CUDA path.
-    ///
-    /// `best_score` and `best_walker` must each be length 1. Intermediate per-block
-    /// partial buffers are allocated internally using `grid.x = ceil_div(n_walkers, 256)`.
     pub fn satsolver_aux_reduce_best(
+        &self,
+        assignment: &GpuBuffer<u8>,
+        sat_flags: &mut GpuBuffer<u8>,
+        scores: &GpuBuffer<i32>,
+        best_score: &mut GpuBuffer<i32>,
+        best_walker: &mut GpuBuffer<i32>,
+        clauses: &GpuBuffer<i32>,
+        n_walkers: i32,
+        n_vars: i32,
+        n_clauses: i32,
+        clause_len: i32,
+    ) -> GpuResult<()> {
+        self.satsolver_aux_reduce_best_async(
+            assignment,
+            sat_flags,
+            scores,
+            best_score,
+            best_walker,
+            clauses,
+            n_walkers,
+            n_vars,
+            n_clauses,
+            clause_len,
+        )?;
+        self.synchronize()
+    }
+
+    pub fn satsolver_aux_reduce_best_async(
         &self,
         assignment: &GpuBuffer<u8>,
         sat_flags: &mut GpuBuffer<u8>,
@@ -190,7 +223,7 @@ impl GpuAccelerator {
         let kernels = self.kernels()?;
         let satsolver_aux_update = kernels.get_function("satsolver_aux_update")?;
         let satsolver_best_reduce_pass2 = kernels.get_function("satsolver_best_reduce_pass2")?;
-        let stream = Self::new_stream()?;
+        let stream = self.stream.as_ref().ok_or(GpuError::NoGpu)?;
         let grid_x = Self::ceil_div_u32(n_walkers as u32, SATSOLVER_BLOCK_SIZE);
         let block = SATSOLVER_BLOCK_SIZE;
         let partial_len = grid_x as usize;
@@ -224,14 +257,25 @@ impl GpuAccelerator {
             })?;
         }
 
+        // Ensure temporary partial buffers are not dropped while kernels are in-flight.
         stream.synchronize().map_err(|e| {
-            GpuError::LaunchFailed(format!("satsolver_aux_reduce_best sync: {e:?}"))
+            GpuError::LaunchFailed(format!("satsolver_aux_reduce_best async sync: {e:?}"))
         })?;
+
         Ok(())
     }
 
-    /// Convert a normalised float stimulus [0,1] into a Poisson spike (0/1) for each input channel.
     pub fn poisson_encode(
+        &self,
+        stimuli: &GpuBuffer<f32>,
+        spikes: &mut GpuBuffer<u32>,
+        seed: u32,
+    ) -> GpuResult<()> {
+        self.poisson_encode_async(stimuli, spikes, seed)?;
+        self.synchronize()
+    }
+
+    pub fn poisson_encode_async(
         &self,
         stimuli: &GpuBuffer<f32>,
         spikes: &mut GpuBuffer<u32>,
@@ -242,8 +286,8 @@ impl GpuAccelerator {
 
         let kernels = self.kernels()?;
         let func = kernels.get_function("poisson_encode")?;
-        let stream = Self::new_stream()?;
-        
+        let stream = self.stream.as_ref().ok_or(GpuError::NoGpu)?;
+
         let block = 256;
         let grid = Self::ceil_div_u32(n as u32, block);
 
@@ -257,15 +301,7 @@ impl GpuAccelerator {
             .map_err(|e| GpuError::LaunchFailed(format!("poisson_encode launch: {e:?}")))?;
         }
 
-        stream.synchronize().map_err(|e| {
-            GpuError::LaunchFailed(format!("poisson_encode sync: {e:?}"))
-        })?;
         Ok(())
-    }
-
-    fn new_stream() -> GpuResult<Stream> {
-        Stream::new(StreamFlags::DEFAULT, None)
-            .map_err(|e| GpuError::LaunchFailed(format!("stream creation failed: {e:?}")))
     }
 
     fn expect_len(name: &str, actual: usize, minimum: usize) -> GpuResult<()> {

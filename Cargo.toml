@@ -11,8 +11,12 @@ repository = "https://github.com/rmems/myelin-accelerator"
 name = "myelin_accelerator"
 path = "src/lib.rs"
 
+[features]
+default = []
+cuda = ["dep:cust"]
+
 [dependencies]
-cust    = "0.3.2"
+cust    = { version = "0.3.2", optional = true }
 anyhow  = { version = "1", features = ["backtrace"] }
 tracing = "0.1"
 
