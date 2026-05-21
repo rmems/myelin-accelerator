@@ -257,6 +257,11 @@ impl GpuAccelerator {
             })?;
         }
 
+        // Ensure temporary partial buffers are not dropped while kernels are in-flight.
+        stream.synchronize().map_err(|e| {
+            GpuError::LaunchFailed(format!("satsolver_aux_reduce_best async sync: {e:?}"))
+        })?;
+
         Ok(())
     }
 
