@@ -23,15 +23,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cargo test (default features)
+      - name: Cargo test
         run: cargo test --locked
 
-      - name: Cargo build (explicit no-default-features)
+      - name: Cargo build without default features
         run: cargo build --locked --no-default-features
 
   cuda-smoke:
-    name: CUDA smoke (real nvcc + driver)
-    if: github.event_name == 'workflow_dispatch' && inputs.run_cuda_smoke == true
+    name: CUDA smoke
+    if: github.event_name == 'workflow_dispatch' && inputs.run_cuda_smoke == 'true'
     runs-on: [self-hosted, linux, x64, gpu, cuda]
     timeout-minutes: 20
     steps:
@@ -56,14 +56,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pkg_hash=$(ls -d target/debug/build/myelin-accelerator-* | head -n 1)
-          ptx_dir="$pkg_hash/out"
+          ptx_dir="$(ls -td target/debug/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
           test -n "$ptx_dir"
           test -d "$ptx_dir"
 
           for f in spiking_network_sm_120.ptx vector_similarity_sm_120.ptx satsolver_sm_120.ptx; do
             test -f "$ptx_dir/$f"
-            # Stub PTX uses .target sm_80; real compile for this repo should be sm_120.
             grep -q '^\.target sm_120' "$ptx_dir/$f"
           done
 

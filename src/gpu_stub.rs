@@ -40,11 +40,15 @@ impl GpuContext {
 }
 
 pub struct KernelModule;
+pub struct Function;
 impl KernelModule {
     pub fn load() -> GpuResult<Self> {
         Err(GpuError::NoGpu)
     }
     pub fn load_satsolver() -> GpuResult<Self> {
+        Err(GpuError::NoGpu)
+    }
+    pub fn get_function(&self, _: &str) -> GpuResult<Function> {
         Err(GpuError::NoGpu)
     }
 }
@@ -79,6 +83,9 @@ impl<T: Default + Clone> GpuBuffer<T> {
     }
     pub fn len(&self) -> usize {
         self.data.len()
+    }
+    pub fn as_device_ptr(&self) -> *const T {
+        self.data.as_ptr()
     }
 }
 
