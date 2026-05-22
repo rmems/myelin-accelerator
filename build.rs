@@ -43,11 +43,9 @@ fn main() {
         env::var("MYELIN_PTX_VERSION").unwrap_or_else(|_| PTX_STUB_VERSION.to_string());
 
     let Some(nvcc_path) = nvcc else {
-        emit_stub_ptx(&out_dir);
-        println!(
-            "cargo:warning=nvcc not found; wrote stub PTX files. Enable CUDA by installing toolkit or setting CUDA_NVCC."
+        panic!(
+            "cuda feature is enabled but nvcc was not found. Install CUDA toolkit or set CUDA_NVCC."
         );
-        return;
     };
 
     match nvcc_version(&nvcc_path) {
@@ -125,7 +123,10 @@ fn nvcc_version(nvcc: &Path) -> Option<String> {
 }
 
 fn compile_to_ptx(nvcc: &Path, cu_dir: &Path, source: &Path, output: &Path, arch: &str) {
-    let threads = env::var("MYELIN_NVCC_THREADS").unwrap_or_else(|_| "0".to_string());
+    let threads_raw = env::var("MYELIN_NVCC_THREADS").unwrap_or_else(|_| "0".to_string());
+    let threads = threads_raw.parse::<usize>().unwrap_or_else(|_| {
+        panic!("MYELIN_NVCC_THREADS must be a non-negative integer, got \"{threads_raw}\"")
+    });
 
     let status = Command::new(nvcc)
         .arg("-ptx")
@@ -134,7 +135,7 @@ fn compile_to_ptx(nvcc: &Path, cu_dir: &Path, source: &Path, output: &Path, arch
         .arg("--use_fast_math")
         .arg("--restrict")
         .arg("--threads")
-        .arg(threads)
+        .arg(threads.to_string())
         .arg("-D__STRICT_ANSI__")
         .arg("--allow-unsupported-compiler")
         .arg("-I")
