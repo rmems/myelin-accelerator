@@ -341,6 +341,12 @@ impl GpuAccelerator {
     }
 }
 
+impl Drop for GpuAccelerator {
+    fn drop(&mut self) {
+        let _ = self.synchronize();
+    }
+}
+
 impl Default for GpuAccelerator {
     fn default() -> Self {
         Self::new()
