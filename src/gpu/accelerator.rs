@@ -1,3 +1,6 @@
+// Copyright 2026 Raul Mc
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use crate::gpu::context::GpuContext;
 use crate::gpu::error::{GpuError, GpuResult};
 use crate::gpu::kernel::KernelModule;

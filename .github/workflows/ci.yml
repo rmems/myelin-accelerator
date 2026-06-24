@@ -1,3 +1,6 @@
+# Copyright 2026 Raul Mc
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 name: CI
 
 on:
@@ -12,9 +15,33 @@ on:
         default: false
         type: boolean
 
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
 jobs:
+  # ── Formatting & linting ───────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy (no CUDA)
+        run: cargo clippy --locked --no-default-features -- -D warnings
+
+  # ── CPU-only tests & builds ────────────────────────────────────────────────
   cpu-checks:
-    name: CPU checks (no CUDA)
+    name: CPU checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,41 +56,132 @@ jobs:
       - name: Cargo build without default features
         run: cargo build --locked --no-default-features
 
-  cuda-smoke:
-    name: CUDA smoke
-    if: github.event_name == 'workflow_dispatch' && inputs.run_cuda_smoke == 'true'
+      - name: Cargo build without default features (release)
+        run: cargo build --locked --no-default-features --release
+
+  # ── CUDA build & validation ────────────────────────────────────────────────
+  cuda-build:
+    name: "CUDA build (${{ matrix.build_type }}, ${{ matrix.cuda_arch }})"
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.run_cuda_smoke == 'true'
     runs-on: [self-hosted, linux, x64, gpu, cuda]
-    timeout-minutes: 20
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [debug, release]
+        cuda_arch: [sm_120]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: CUDA diagnostics
         run: |
+          echo "::group::nvidia-smi"
           nvidia-smi
+          echo "::endgroup::"
+          echo "::group::nvcc"
           nvcc --version
+          echo "::endgroup::"
 
       - name: Build with CUDA feature
         env:
-          MYELIN_CUDA_ARCH: sm_120
+          MYELIN_CUDA_ARCH: ${{ matrix.cuda_arch }}
           MYELIN_PTX_VERSION: "8.5"
-        run: cargo build --locked --features cuda -vv
+          CARGO_PROFILE: ${{ matrix.build_type == 'release' && '--release' || '' }}
+        run: cargo build --locked --features cuda $CARGO_PROFILE
 
-      - name: Verify generated PTX is non-stub
+      - name: Clippy with CUDA feature
+        if: matrix.build_type == 'debug'
+        env:
+          MYELIN_CUDA_ARCH: ${{ matrix.cuda_arch }}
+          MYELIN_PTX_VERSION: "8.5"
+        run: cargo clippy --locked --features cuda -- -D warnings
+
+      - name: Verify PTX output is non-stub
         shell: bash
         run: |
           set -euo pipefail
-          ptx_dir="$(ls -td target/debug/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
-          test -n "$ptx_dir"
-          test -d "$ptx_dir"
+          profile_dir="${{ matrix.build_type == 'release' && 'release' || 'debug' }}"
+          ptx_dir="$(ls -td target/$profile_dir/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
+          if [ -z "$ptx_dir" ]; then
+            echo "::error::Could not find PTX output directory"
+            exit 1
+          fi
 
-          for f in spiking_network_sm_120.ptx vector_similarity_sm_120.ptx satsolver_sm_120.ptx; do
-            test -f "$ptx_dir/$f"
-            grep -q '^\.target sm_120' "$ptx_dir/$f"
+          for f in spiking_network_${{ matrix.cuda_arch }}.ptx \
+                   vector_similarity_${{ matrix.cuda_arch }}.ptx \
+                   satsolver_${{ matrix.cuda_arch }}.ptx; do
+            if [ ! -f "$ptx_dir/$f" ]; then
+              echo "::error::Missing PTX file: $f"
+              exit 1
+            fi
+            if ! grep -q '^\.target ${{ matrix.cuda_arch }}' "$ptx_dir/$f"; then
+              echo "::error::PTX file $f does not target ${{ matrix.cuda_arch }}"
+              exit 1
+            fi
+            echo "✓ $f targets ${{ matrix.cuda_arch }}"
           done
 
-      - name: CUDA smoke done
-        run: echo "CUDA build and PTX verification passed"
+      - name: Validate PTX kernel symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          profile_dir="${{ matrix.build_type == 'release' && 'release' || 'debug' }}"
+          ptx_dir="$(ls -td target/$profile_dir/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
+
+          echo "Checking kernel entry points in PTX files..."
+          echo ""
+
+          # spiking_network kernels
+          for kernel in poisson_encode lif_step lif_step_weighted spike_rate \
+                        reset_membrane stdp_update neuro_bias_logits \
+                        membrane_dv_dt_reduce_pass1 routing_entropy_reduce_pass1 \
+                        latent_reduce_pass2; do
+            if grep -q "\\.entry.*${kernel}" "$ptx_dir/spiking_network_${{ matrix.cuda_arch }}.ptx"; then
+              echo "✓ spiking_network: $kernel"
+            else
+              echo "::error::Missing kernel entry: $kernel in spiking_network PTX"
+              exit 1
+            fi
+          done
+
+          # vector_similarity kernels
+          for kernel in cosine_similarity_batched cosine_similarity_top_k; do
+            if grep -q "\\.entry.*${kernel}" "$ptx_dir/vector_similarity_${{ matrix.cuda_arch }}.ptx"; then
+              echo "✓ vector_similarity: $kernel"
+            else
+              echo "::error::Missing kernel entry: $kernel in vector_similarity PTX"
+              exit 1
+            fi
+          done
+
+          # satsolver kernels
+          for kernel in satsolver_init satsolver_step satsolver_aux_update \
+                        satsolver_check_solution satsolver_extract \
+                        satsolver_best_reduce_pass1 satsolver_best_reduce_pass2; do
+            if grep -q "\\.entry.*${kernel}" "$ptx_dir/satsolver_${{ matrix.cuda_arch }}.ptx"; then
+              echo "✓ satsolver: $kernel"
+            else
+              echo "::error::Missing kernel entry: $kernel in satsolver PTX"
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "All kernel entry points verified."
+
+      - name: Upload PTX artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ptx-${{ matrix.cuda_arch }}-${{ matrix.build_type }}
+          path: target/${{ matrix.build_type == 'release' && 'release' || 'debug' }}/build/myelin-accelerator-*/out/*.ptx
+          retention-days: 30
+
+      - name: CUDA build done
+        run: echo "CUDA ${{ matrix.build_type }} build for ${{ matrix.cuda_arch }} passed"

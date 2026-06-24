@@ -1,3 +1,6 @@
+// Copyright 2026 Raul Mc
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // ════════════════════════════════════════════════════════════════════
 //  satsolver.cu — Parallel WalkSAT / stochastic local-search kernels
 //

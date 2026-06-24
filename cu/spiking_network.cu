@@ -1,3 +1,6 @@
+// Copyright 2026 Raul Mc
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // ════════════════════════════════════════════════════════════════════
 //  spiking_network.cu — LIF / STDP spiking-network CUDA kernels
 //

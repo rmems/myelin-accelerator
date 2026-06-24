@@ -1,3 +1,6 @@
+// Copyright 2026 Raul Mc
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use std::env;
 use std::ffi::OsString;
 use std::fs;

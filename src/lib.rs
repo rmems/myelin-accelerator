@@ -1,4 +1,9 @@
+// Copyright 2026 Raul Mc
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // myelin-accelerator: safe Rust FFI wrappers around CUDA spiking-network kernels.
+pub mod bitpacking;
+
 #[cfg(not(feature = "cuda"))]
 pub mod gpu_stub;
 #[cfg(not(feature = "cuda"))]

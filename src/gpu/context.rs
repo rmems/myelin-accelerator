@@ -1,3 +1,6 @@
+// Copyright 2026 Raul Mc
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // ════════════════════════════════════════════════════════════════════
 //  gpu/context.rs — CUDA device context initialisation
 // ════════════════════════════════════════════════════════════════════
