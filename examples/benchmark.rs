@@ -78,7 +78,10 @@ warmup = args[i].parse().unwrap_or_else(|_| {
                         eprintln!("--iterations requires a value");
                         std::process::exit(1);
                     }
-                    iterations = args[i].parse().expect("--iterations requires a number");
+iterations = args[i].parse().unwrap_or_else(|_| {
+    eprintln!("--iterations requires a number");
+    std::process::exit(1);
+});
                 }
                 "--baseline" => {
                     i += 1;
