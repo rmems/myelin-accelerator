@@ -67,10 +67,10 @@ impl Config {
                         eprintln!("--warmup requires a value");
                         std::process::exit(1);
                     }
-warmup = args[i].parse().unwrap_or_else(|_| {
-    eprintln!("--warmup requires a number");
-    std::process::exit(1);
-});
+                    warmup = args[i].parse().unwrap_or_else(|_| {
+                        eprintln!("--warmup requires a number");
+                        std::process::exit(1);
+                    });
                 }
                 "--iterations" | "-n" => {
                     i += 1;
@@ -78,10 +78,10 @@ warmup = args[i].parse().unwrap_or_else(|_| {
                         eprintln!("--iterations requires a value");
                         std::process::exit(1);
                     }
-iterations = args[i].parse().unwrap_or_else(|_| {
-    eprintln!("--iterations requires a number");
-    std::process::exit(1);
-});
+                    iterations = args[i].parse().unwrap_or_else(|_| {
+                        eprintln!("--iterations requires a number");
+                        std::process::exit(1);
+                    });
                 }
                 "--baseline" => {
                     i += 1;
@@ -235,15 +235,11 @@ fn run_benchmark<F: FnMut()>(
 
 #[cfg(feature = "cuda")]
 fn collect_gpu_info() -> Option<GpuInfo> {
-    // When CUDA is available, collect device info via cust.
-    // This is best-effort; return None if anything fails.
-    use myelin_accelerator::GpuContext;
-    if GpuContext::init().is_err() {
-        return None;
-    }
     // TODO: Use cust::device::Device to query actual hardware properties.
     // Return None until real device queries are implemented — avoids
-    // emitting misleading "unknown" fields in benchmark reports.
+    // emitting misleading "unknown" fields in benchmark reports and
+    // avoids double CUDA context initialization (GpuAccelerator::new
+    // already initializes the context).
     None
 }
 
