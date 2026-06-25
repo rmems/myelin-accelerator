@@ -107,9 +107,9 @@ __device__ __forceinline__ int unpack_ternary(const unsigned int* packed, unsign
 }
 
 // ── Vectorized 4-word load helper ───────────────────────────────────
-// Loads 4 consecutive u32 values using a single 128-bit transaction.
-// REQUIRES: offset must be a multiple of 4 (16-byte aligned address).
-// Callers must ensure alignment; misaligned access causes undefined behavior.
+// Loads 4 consecutive u32 values. Uses 128-bit vectorized load when
+// offset is 4-word aligned, falls back to scalar loads otherwise.
+// Callers must ensure at least 4 words are available beyond offset.
 __device__ __forceinline__ void load_u32x4(const unsigned int* base, unsigned int offset,
                                             unsigned int& a, unsigned int& b,
                                             unsigned int& c, unsigned int& d) {

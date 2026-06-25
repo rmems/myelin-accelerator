@@ -194,8 +194,9 @@ fn run_benchmark<F: FnMut()>(
     let mean_us = total_us / iterations as f64;
 
     let percentile = |p: f64| -> f64 {
-        let idx = ((p / 100.0) * iterations as f64).ceil() as usize;
-        let idx = idx.min(iterations - 1);
+        // Nearest-rank method: rank = ceil(p/100 * N), then convert to 0-based index.
+        let rank = ((p / 100.0) * iterations as f64).ceil() as usize;
+        let idx = rank.saturating_sub(1).min(iterations - 1);
         durations[idx].as_secs_f64() * 1e6
     };
 
@@ -234,16 +235,10 @@ fn collect_gpu_info() -> Option<GpuInfo> {
     if GpuContext::init().is_err() {
         return None;
     }
-    // GPU info collection requires cust device queries.
-    // Placeholder: in a full implementation, use cust::device::Device
-    // to query name, driver version, compute capability, and memory.
-    Some(GpuInfo {
-        device_name: "CUDA device (query not yet implemented)".to_string(),
-        driver_version: "unknown".to_string(),
-        cuda_version: "unknown".to_string(),
-        sm_arch: "sm_120".to_string(),
-        vram_total_mb: 0,
-    })
+    // TODO: Use cust::device::Device to query actual hardware properties.
+    // Return None until real device queries are implemented — avoids
+    // emitting misleading "unknown" fields in benchmark reports.
+    None
 }
 
 #[cfg(not(feature = "cuda"))]
@@ -579,11 +574,11 @@ fn chrono_now() -> String {
 }
 
 fn days_to_ymd(g: i64) -> (i64, u32, u32) {
-    let y = (10000 * g + 14780) / 3652425;
+    let mut y = (10000 * g + 14780) / 3652425;
     let mut doy = g - (365 * y + y / 4 - y / 100 + y / 400);
     if doy < 0 {
-        let y2 = y - 1;
-        doy = g - (365 * y2 + y2 / 4 - y2 / 100 + y2 / 400);
+        y -= 1;
+        doy = g - (365 * y + y / 4 - y / 100 + y / 400);
     }
     let mi = (100 * doy + 52) / 3060;
     let month = (mi + 2) % 12 + 1;

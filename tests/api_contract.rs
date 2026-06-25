@@ -112,6 +112,32 @@ mod stub_contract {
     }
 
     #[test]
+    fn accelerator_satsolver_aux_reduce_best_returns_no_gpu() {
+        let acc = GpuAccelerator::new();
+        let assignment = GpuBuffer::<u8>::alloc(10).unwrap();
+        let mut sat_flags = GpuBuffer::<u8>::alloc(10).unwrap();
+        let scores = GpuBuffer::<i32>::alloc(1).unwrap();
+        let mut best_score = GpuBuffer::<i32>::alloc(1).unwrap();
+        let mut best_walker = GpuBuffer::<i32>::alloc(1).unwrap();
+        let clauses = GpuBuffer::<i32>::alloc(10).unwrap();
+        assert!(
+            acc.satsolver_aux_reduce_best(
+                &assignment,
+                &mut sat_flags,
+                &scores,
+                &mut best_score,
+                &mut best_walker,
+                &clauses,
+                1,
+                10,
+                1,
+                10,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn error_display_contains_variant_info() {
         let variants = [
             GpuError::NoGpu,
