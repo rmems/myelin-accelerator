@@ -114,7 +114,12 @@ __device__ __forceinline__ void load_u32x4(const unsigned int* base, unsigned in
                                             unsigned int& a, unsigned int& b,
                                             unsigned int& c, unsigned int& d) {
     // Guard: offset must be 4-word aligned for 128-bit load.
-    if (offset & 3u) {
+if ((reinterpret_cast<uintptr_t>(base + offset) & 0xFu) != 0) {
+    // Fallback: scalar loads for unaligned access.
+    a = base[offset]; b = base[offset + 1];
+    c = base[offset + 2]; d = base[offset + 3];
+    return;
+}
         // Fallback: scalar loads for unaligned access.
         a = base[offset]; b = base[offset + 1];
         c = base[offset + 2]; d = base[offset + 3];
