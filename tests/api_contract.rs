@@ -63,7 +63,7 @@ mod stub_contract {
     fn kernel_load_returns_error_without_gpu() {
         let result = KernelModule::load();
         assert!(result.is_err());
-    }
+assert!(matches!(KernelModule::load(), Err(GpuError::NoGpu)));
 
     #[test]
     fn buffer_alloc_and_roundtrip() {
