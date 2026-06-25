@@ -63,10 +63,10 @@ jobs:
         run: cargo build --locked --no-default-features --release
 
   # ── CUDA build & validation ────────────────────────────────────────────────
+  # Runs on PRs and pushes when a self-hosted GPU runner is available.
+  # If no runner matches, the job queues until one comes online or is cancelled.
   cuda-build:
     name: "CUDA build (${{ matrix.build_type }}, ${{ matrix.cuda_arch }})"
-    if: >-
-      github.event_name == 'workflow_dispatch' && inputs.run_cuda_smoke == 'true'
     runs-on: [self-hosted, linux, x64, gpu, cuda]
     timeout-minutes: 30
     strategy:
