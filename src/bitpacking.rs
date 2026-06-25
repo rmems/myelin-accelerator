@@ -58,7 +58,8 @@ pub fn pack_binary(values: &[bool]) -> Vec<u32> {
 /// If `count` is provided, returns exactly that many values (truncating
 /// any bits beyond `count` in the last word).
 pub fn unpack_binary(packed: &[u32], count: Option<usize>) -> Vec<bool> {
-    let total_bits = count.unwrap_or(packed.len() * BINARY_VALUES_PER_WORD);
+    let max_bits = packed.len() * BINARY_VALUES_PER_WORD;
+    let total_bits = count.unwrap_or(max_bits).min(max_bits);
     let mut out = Vec::with_capacity(total_bits);
     for i in 0..total_bits {
         let word = i / BINARY_VALUES_PER_WORD;
@@ -102,7 +103,8 @@ pub fn pack_ternary(values: &[i8]) -> Vec<u32> {
 ///
 /// Decoding: `0b00` → `0`, `0b01` → `+1`, `0b10` → `-1`, `0b11` → `0`.
 pub fn unpack_ternary(packed: &[u32], count: Option<usize>) -> Vec<i8> {
-    let total = count.unwrap_or(packed.len() * TERNARY_VALUES_PER_WORD);
+    let max_values = packed.len() * TERNARY_VALUES_PER_WORD;
+    let total = count.unwrap_or(max_values).min(max_values);
     let mut out = Vec::with_capacity(total);
     for i in 0..total {
         let word = i / TERNARY_VALUES_PER_WORD;

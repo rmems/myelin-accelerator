@@ -63,18 +63,34 @@ impl Config {
             match args[i].as_str() {
                 "--warmup" => {
                     i += 1;
+                    if i >= args.len() {
+                        eprintln!("--warmup requires a value");
+                        std::process::exit(1);
+                    }
                     warmup = args[i].parse().expect("--warmup requires a number");
                 }
                 "--iterations" | "-n" => {
                     i += 1;
+                    if i >= args.len() {
+                        eprintln!("--iterations requires a value");
+                        std::process::exit(1);
+                    }
                     iterations = args[i].parse().expect("--iterations requires a number");
                 }
                 "--baseline" => {
                     i += 1;
+                    if i >= args.len() {
+                        eprintln!("--baseline requires a value");
+                        std::process::exit(1);
+                    }
                     baseline = Some(args[i].clone());
                 }
                 "--output" | "-o" => {
                     i += 1;
+                    if i >= args.len() {
+                        eprintln!("--output requires a value");
+                        std::process::exit(1);
+                    }
                     output_prefix = args[i].clone();
                 }
                 "--help" | "-h" => {
@@ -94,6 +110,11 @@ impl Config {
                 }
             }
             i += 1;
+        }
+
+        if iterations == 0 {
+            eprintln!("--iterations must be > 0");
+            std::process::exit(1);
         }
 
         Config {

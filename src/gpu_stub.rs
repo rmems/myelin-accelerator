@@ -435,7 +435,11 @@ mod tests {
 
         #[test]
         fn buffer_upload_roundtrip(
-            data in proptest::collection::vec(any::<f32>(), 1..=128)
+            // Use finite floats only — NaN != NaN breaks equality assertions.
+            data in proptest::collection::vec(
+                any::<f32>().prop_filter("finite", |v| v.is_finite()),
+                1..=128
+            )
         ) {
             let mut buf = GpuBuffer::<f32>::alloc(data.len()).unwrap();
             buf.upload(&data).unwrap();
