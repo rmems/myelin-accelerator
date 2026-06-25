@@ -90,6 +90,9 @@ impl<T: Default + Clone> GpuBuffer<T> {
     pub fn len(&self) -> usize {
         self.data.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
     pub fn as_device_ptr(&self) -> *const T {
         self.data.as_ptr()
     }
@@ -116,6 +119,7 @@ impl GpuAccelerator {
     ) -> GpuResult<()> {
         Err(GpuError::NoGpu)
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn satsolver_aux_reduce_best(
         &self,
         _: &GpuBuffer<u8>,
@@ -151,6 +155,7 @@ impl GpuAccelerator {
         Err(GpuError::NoGpu)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn satsolver_aux_reduce_best_async(
         &self,
         _: &GpuBuffer<u8>,
