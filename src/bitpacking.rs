@@ -86,7 +86,7 @@ pub fn pack_ternary(values: &[i8]) -> Vec<u32> {
     for (i, &v) in values.iter().enumerate() {
         let code: u32 = match v {
             0 => 0b00,
-            1..=i8::MAX => 0b01, // +1 and above clamped to +1
+            1..=i8::MAX => 0b01,  // +1 and above clamped to +1
             i8::MIN..=-1 => 0b10, // -1 and below clamped to -1
         };
         let word = i / TERNARY_VALUES_PER_WORD;

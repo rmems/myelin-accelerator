@@ -384,8 +384,7 @@ mod tests {
         let stimuli = GpuBuffer::<f32>::alloc(10).unwrap();
         let mut spikes = GpuBuffer::<u32>::alloc(10).unwrap();
         assert!(matches!(
-            acc.poisson_encode(&stimuli, &mut spikes, 42)
-                .unwrap_err(),
+            acc.poisson_encode(&stimuli, &mut spikes, 42).unwrap_err(),
             GpuError::NoGpu
         ));
     }

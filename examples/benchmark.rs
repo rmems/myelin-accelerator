@@ -100,7 +100,9 @@ impl Config {
                     println!("  --warmup <N>        Warmup iterations (default: 10)");
                     println!("  --iterations <N>    Timed iterations (default: 100)");
                     println!("  --baseline <FILE>   Compare against a previous JSON result");
-                    println!("  --output <PREFIX>   Output file prefix (default: benchmark_results)");
+                    println!(
+                        "  --output <PREFIX>   Output file prefix (default: benchmark_results)"
+                    );
                     println!("  -h, --help          Show this help");
                     std::process::exit(0);
                 }
@@ -252,7 +254,9 @@ fn collect_gpu_info() -> Option<GpuInfo> {
 // ── Bitpacking benchmarks ───────────────────────────────────────────────────
 
 fn bench_bitpacking(config: &Config) -> Vec<BenchmarkResult> {
-    use myelin_accelerator::bitpacking::{pack_binary, pack_ternary, unpack_binary, unpack_ternary};
+    use myelin_accelerator::bitpacking::{
+        pack_binary, pack_ternary, unpack_binary, unpack_ternary,
+    };
 
     let mut results = Vec::new();
 
@@ -396,8 +400,14 @@ fn bench_gpu_kernels(config: &Config) -> Vec<BenchmarkResult> {
         config.warmup,
         config.iterations,
         || {
-            acc.satsolver_extract(&assignment, &best_walker, &mut output, n_vars as i32, n_walkers as i32)
-                .unwrap();
+            acc.satsolver_extract(
+                &assignment,
+                &best_walker,
+                &mut output,
+                n_vars as i32,
+                n_walkers as i32,
+            )
+            .unwrap();
         },
     ));
 
@@ -465,7 +475,9 @@ fn write_json(report: &BenchmarkReport, prefix: &str) {
 
 fn write_csv(results: &[BenchmarkResult], prefix: &str) {
     let path = format!("{prefix}.csv");
-    let mut csv = String::from("name,iterations,mean_us,p50_us,p95_us,p99_us,min_us,max_us,throughput_ops_sec\n");
+    let mut csv = String::from(
+        "name,iterations,mean_us,p50_us,p95_us,p99_us,min_us,max_us,throughput_ops_sec\n",
+    );
     for r in results {
         csv.push_str(&format!(
             "{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.0}\n",
@@ -511,7 +523,10 @@ fn print_results(results: &[BenchmarkResult]) {
 fn main() {
     let config = Config::from_args();
 
-    println!("[bench] Warmup: {}, Iterations: {}", config.warmup, config.iterations);
+    println!(
+        "[bench] Warmup: {}, Iterations: {}",
+        config.warmup, config.iterations
+    );
 
     let gpu_info = collect_gpu_info();
     if let Some(ref info) = gpu_info {
