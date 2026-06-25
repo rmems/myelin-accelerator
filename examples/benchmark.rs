@@ -67,7 +67,10 @@ impl Config {
                         eprintln!("--warmup requires a value");
                         std::process::exit(1);
                     }
-                    warmup = args[i].parse().expect("--warmup requires a number");
+warmup = args[i].parse().unwrap_or_else(|_| {
+    eprintln!("--warmup requires a number");
+    std::process::exit(1);
+});
                 }
                 "--iterations" | "-n" => {
                     i += 1;
