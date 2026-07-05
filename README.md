@@ -33,7 +33,7 @@ Recent kernel work in this branch was authored with GPT-5.4 (`xhigh`) assistance
 
 ```toml
 [dependencies]
-myelin-accelerator = "0.9.2"
+myelin-accelerator = "0.1.0"
 ```
 
 ## License
