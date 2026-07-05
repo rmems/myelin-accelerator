@@ -70,15 +70,18 @@ jobs:
   # matches, the job is cancelled after the runner pool's default
   # 24h queue timeout. With a runner registered, the full CUDA build
   # + PTX validation pipeline runs on every PR.
+  #
+  # The build runs in a single check entry (not a matrix) so the PR
+  # check list shows one CUDA build rather than two (debug + release).
+  # Both profiles are built and validated inside one job via a shell
+  # loop; PTX artifacts are uploaded under per-profile names.
   cuda-build:
-    name: "CUDA build [self-hosted] (${{ matrix.build_type }}, ${{ matrix.cuda_arch }})"
+    name: "CUDA build [self-hosted] (sm_120)"
     runs-on: [self-hosted, linux, x64, gpu, cuda]
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        build_type: [debug, release]
-        cuda_arch: [sm_120]
+    env:
+      MYELIN_CUDA_ARCH: sm_120
+      MYELIN_PTX_VERSION: "8.5"
     steps:
       - name: Confirm self-hosted runner
         run: |
@@ -108,99 +111,90 @@ jobs:
           nvcc --version
           echo "::endgroup::"
 
-      - name: Build with CUDA feature
-        env:
-          MYELIN_CUDA_ARCH: ${{ matrix.cuda_arch }}
-          MYELIN_PTX_VERSION: "8.5"
-          CARGO_PROFILE: ${{ matrix.build_type == 'release' && '--release' || '' }}
-        run: cargo build --locked --features cuda $CARGO_PROFILE
+      - name: Build (debug)
+        run: cargo build --locked --features cuda
 
-      - name: Clippy with CUDA feature
-        if: matrix.build_type == 'debug'
-        env:
-          MYELIN_CUDA_ARCH: ${{ matrix.cuda_arch }}
-          MYELIN_PTX_VERSION: "8.5"
+      - name: Build (release)
+        run: cargo build --locked --features cuda --release
+
+      - name: Clippy with CUDA feature (debug)
         run: cargo clippy --locked --features cuda -- -D warnings
 
       - name: Verify PTX output is non-stub
         shell: bash
         run: |
           set -euo pipefail
-          profile_dir="${{ matrix.build_type == 'release' && 'release' || 'debug' }}"
-          ptx_dir="$(ls -td target/$profile_dir/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
-          if [ -z "$ptx_dir" ]; then
-            echo "::error::Could not find PTX output directory"
-            exit 1
-          fi
-
-          for f in spiking_network_${{ matrix.cuda_arch }}.ptx \
-                   vector_similarity_${{ matrix.cuda_arch }}.ptx \
-                   satsolver_${{ matrix.cuda_arch }}.ptx; do
-            if [ ! -f "$ptx_dir/$f" ]; then
-              echo "::error::Missing PTX file: $f"
+          for profile in debug release; do
+            ptx_dir="$(ls -td target/$profile/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
+            if [ -z "$ptx_dir" ]; then
+              echo "::error::Could not find PTX output directory for profile=$profile"
               exit 1
             fi
-            if ! grep -q '^\.target ${{ matrix.cuda_arch }}' "$ptx_dir/$f"; then
-              echo "::error::PTX file $f does not target ${{ matrix.cuda_arch }}"
-              exit 1
-            fi
-            echo "✓ $f targets ${{ matrix.cuda_arch }}"
+            for f in spiking_network_sm_120.ptx vector_similarity_sm_120.ptx satsolver_sm_120.ptx; do
+              if [ ! -f "$ptx_dir/$f" ]; then
+                echo "::error::Missing PTX file ($profile): $f"
+                exit 1
+              fi
+              if ! grep -q '^\.target sm_120' "$ptx_dir/$f"; then
+                echo "::error::PTX file ($profile) $f does not target sm_120"
+                exit 1
+              fi
+              echo "✓ $profile: $f targets sm_120"
+            done
           done
 
       - name: Validate PTX kernel symbols
         shell: bash
         run: |
           set -euo pipefail
-          profile_dir="${{ matrix.build_type == 'release' && 'release' || 'debug' }}"
-          ptx_dir="$(ls -td target/$profile_dir/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
+          for profile in debug release; do
+            ptx_dir="$(ls -td target/$profile/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
+            echo ""
+            echo "Checking kernel entry points in $profile PTX files..."
 
-          echo "Checking kernel entry points in PTX files..."
+            for kernel in poisson_encode lif_step lif_step_weighted spike_rate \
+                          reset_membrane stdp_update neuro_bias_logits \
+                          membrane_dv_dt_reduce_pass1 routing_entropy_reduce_pass1 \
+                          latent_reduce_pass2; do
+              if grep -q "\\.entry.*${kernel}" "$ptx_dir/spiking_network_sm_120.ptx"; then
+                echo "✓ $profile spiking_network: $kernel"
+              else
+                echo "::error::Missing kernel entry: $kernel in $profile spiking_network PTX"
+                exit 1
+              fi
+            done
+
+            for kernel in cosine_similarity_batched cosine_similarity_top_k; do
+              if grep -q "\\.entry.*${kernel}" "$ptx_dir/vector_similarity_sm_120.ptx"; then
+                echo "✓ $profile vector_similarity: $kernel"
+              else
+                echo "::error::Missing kernel entry: $kernel in $profile vector_similarity PTX"
+                exit 1
+              fi
+            done
+
+            for kernel in satsolver_init satsolver_step satsolver_aux_update \
+                          satsolver_check_solution satsolver_extract \
+                          satsolver_best_reduce_pass1 satsolver_best_reduce_pass2; do
+              if grep -q "\\.entry.*${kernel}" "$ptx_dir/satsolver_sm_120.ptx"; then
+                echo "✓ $profile satsolver: $kernel"
+              else
+                echo "::error::Missing kernel entry: $kernel in $profile satsolver PTX"
+                exit 1
+              fi
+            done
+          done
           echo ""
-
-          # spiking_network kernels
-          for kernel in poisson_encode lif_step lif_step_weighted spike_rate \
-                        reset_membrane stdp_update neuro_bias_logits \
-                        membrane_dv_dt_reduce_pass1 routing_entropy_reduce_pass1 \
-                        latent_reduce_pass2; do
-            if grep -q "\\.entry.*${kernel}" "$ptx_dir/spiking_network_${{ matrix.cuda_arch }}.ptx"; then
-              echo "✓ spiking_network: $kernel"
-            else
-              echo "::error::Missing kernel entry: $kernel in spiking_network PTX"
-              exit 1
-            fi
-          done
-
-          # vector_similarity kernels
-          for kernel in cosine_similarity_batched cosine_similarity_top_k; do
-            if grep -q "\\.entry.*${kernel}" "$ptx_dir/vector_similarity_${{ matrix.cuda_arch }}.ptx"; then
-              echo "✓ vector_similarity: $kernel"
-            else
-              echo "::error::Missing kernel entry: $kernel in vector_similarity PTX"
-              exit 1
-            fi
-          done
-
-          # satsolver kernels
-          for kernel in satsolver_init satsolver_step satsolver_aux_update \
-                        satsolver_check_solution satsolver_extract \
-                        satsolver_best_reduce_pass1 satsolver_best_reduce_pass2; do
-            if grep -q "\\.entry.*${kernel}" "$ptx_dir/satsolver_${{ matrix.cuda_arch }}.ptx"; then
-              echo "✓ satsolver: $kernel"
-            else
-              echo "::error::Missing kernel entry: $kernel in satsolver PTX"
-              exit 1
-            fi
-          done
-
-          echo ""
-          echo "All kernel entry points verified."
+          echo "All kernel entry points verified for both debug and release."
 
       - name: Upload PTX artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ptx-${{ matrix.cuda_arch }}-${{ matrix.build_type }}
-          path: target/${{ matrix.build_type == 'release' && 'release' || 'debug' }}/build/myelin-accelerator-*/out/*.ptx
+          name: ptx-sm_120
+          path: |
+            target/debug/build/myelin-accelerator-*/out/*.ptx
+            target/release/build/myelin-accelerator-*/out/*.ptx
           retention-days: 30
 
       - name: CUDA build done
-        run: echo "CUDA ${{ matrix.build_type }} build for ${{ matrix.cuda_arch }} passed"
+        run: echo "CUDA build (debug + release, sm_120) passed"

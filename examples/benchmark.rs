@@ -199,6 +199,11 @@ fn run_benchmark<F: FnMut()>(
     iterations: usize,
     mut f: F,
 ) -> BenchmarkResult {
+    // Contract: at least one timed iteration. The CLI validator
+    // (Config::validate) already rejects --iterations 0 with a clean
+    // exit, but the function may be reused programmatically.
+    debug_assert!(iterations > 0, "run_benchmark requires iterations > 0");
+
     // Warmup
     for _ in 0..warmup {
         f();
