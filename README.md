@@ -38,4 +38,9 @@ myelin-accelerator = "0.9.2"
 
 ## License
 
-GPL-3.0. See [LICENSE](LICENSE) for details.
+Licensed under either of:
+
+- [Apache License, Version 2.0](LICENSE-APACHE)
+- [MIT License](LICENSE-MIT)
+
+at your option.

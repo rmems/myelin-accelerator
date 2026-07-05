@@ -1,3 +1,6 @@
+// Copyright 2026 Raul Mc
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -128,21 +131,42 @@ fn compile_to_ptx(nvcc: &Path, cu_dir: &Path, source: &Path, output: &Path, arch
         panic!("MYELIN_NVCC_THREADS must be a non-negative integer, got \"{threads_raw}\"")
     });
 
-    let status = Command::new(nvcc)
-        .arg("-ptx")
+    // Flags:
+    //   -std=c++17                      keep the Edison host front-end in C++17
+    //                                    mode so libstdc++ 16's C++23 paths aren't
+    //                                    parsed (avoids the type_traits errors
+    //                                    seen on GCC 16 / nvcc 13.2 hosts).
+    //   --expt-relaxed-constexpr        allow device-side relaxed constexpr.
+    //   -Xcompiler -fno-builtin         pass -fno-builtin to the host compiler
+    //                                    (GCC/Clang) so nvcc doesn't misread
+    //                                    host libm builtins as device intrinsics.
+    //                                    On MSVC the equivalent is /Oi-, but the
+    //                                    CI only targets Linux + the
+    //                                    self-hosted runner is Linux, so this
+    //                                    is fine. Add an MSVC branch here if
+    //                                    Windows CUDA builds become supported.
+    let mut cmd = Command::new(nvcc);
+    cmd.arg("-ptx")
         .arg(format!("-arch={arch}"))
         .arg("-O3")
         .arg("--use_fast_math")
         .arg("--restrict")
         .arg("--threads")
         .arg(threads.to_string())
+        .arg("-std=c++17")
         .arg("-D__STRICT_ANSI__")
         .arg("--allow-unsupported-compiler")
+        .arg("--expt-relaxed-constexpr")
         .arg("-I")
         .arg(cu_dir)
         .arg("-o")
         .arg(output)
-        .arg(source)
+        .arg(source);
+    if cfg!(unix) {
+        cmd.arg("-Xcompiler").arg("-fno-builtin");
+    }
+
+    let status = cmd
         .status()
         .unwrap_or_else(|e| panic!("Failed to invoke nvcc for {}: {e}", source.display()));
 

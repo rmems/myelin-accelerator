@@ -1,0 +1,11 @@
+self-hosted-runner:
+  # Custom labels used by the self-hosted myelin-accelerator-runner.
+  # The 'self-hosted' label is built-in; 'gpu' and 'cuda' are project-
+  # specific custom labels that GitHub's hosted runners don't have.
+  # Declaring them here silences actionlint's runner-label warnings.
+  labels:
+    - self-hosted
+    - linux
+    - x64
+    - gpu
+    - cuda

@@ -1,3 +1,6 @@
+// Copyright 2026 Raul Mc
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // ════════════════════════════════════════════════════════════════════
 //  gpu/mod.rs — GPU sub-module declarations and public re-exports
 // ════════════════════════════════════════════════════════════════════

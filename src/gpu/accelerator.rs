@@ -1,3 +1,6 @@
+// Copyright 2026 Raul Mc
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use crate::gpu::context::GpuContext;
 use crate::gpu::error::{GpuError, GpuResult};
 use crate::gpu::kernel::KernelModule;
@@ -145,6 +148,10 @@ impl GpuAccelerator {
         Ok(())
     }
 
+    // 11 parameters mirror the satsolver_aux_update CUDA kernel ABI;
+    // grouping them would require a context struct on every call site
+    // without simplifying the launch. Allow the clippy lint.
+    #[allow(clippy::too_many_arguments)]
     pub fn satsolver_aux_reduce_best(
         &self,
         assignment: &GpuBuffer<u8>,
@@ -173,6 +180,10 @@ impl GpuAccelerator {
         self.synchronize()
     }
 
+    // 11 parameters mirror the satsolver_aux_update CUDA kernel ABI;
+    // grouping them would require a context struct on every call site
+    // without simplifying the launch. Allow the clippy lint.
+    #[allow(clippy::too_many_arguments)]
     pub fn satsolver_aux_reduce_best_async(
         &self,
         assignment: &GpuBuffer<u8>,

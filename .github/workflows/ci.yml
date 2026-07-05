@@ -1,3 +1,6 @@
+# Copyright 2026 Raul Mc
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 name: CI
 
 on:
@@ -5,16 +8,37 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      run_cuda_smoke:
-        description: "Run CUDA smoke job (requires self-hosted GPU runner)"
-        required: false
-        default: false
-        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
 
 jobs:
+  # ── Formatting & linting ───────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy (no CUDA)
+        run: cargo clippy --locked --no-default-features -- -D warnings
+
+  # ── CPU-only tests & builds ────────────────────────────────────────────────
   cpu-checks:
-    name: CPU checks (no CUDA)
+    name: CPU checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,41 +53,158 @@ jobs:
       - name: Cargo build without default features
         run: cargo build --locked --no-default-features
 
-  cuda-smoke:
-    name: CUDA smoke
-    if: github.event_name == 'workflow_dispatch' && inputs.run_cuda_smoke == 'true'
+      - name: Cargo build without default features (release)
+        run: cargo build --locked --no-default-features --release
+
+  # ── CUDA build & validation (SELF-HOSTED GPU RUNNER) ─────────────────────
+  # This job targets a self-hosted Actions runner registered to this
+  # repository with the labels [self-hosted, linux, x64, gpu, cuda].
+  # The PR check list will display the job name with the [self-hosted]
+  # prefix; the GitHub Actions UI also tags these jobs with a small
+  # "self-hosted" badge once they're claimed by the runner. Required
+  # label matchers and the runner registration are documented in
+  # ./actions-runner/myelin-accelerator-runner/.runner
+  # (directory is gitignored; see .gitignore).
+  #
+  # The job targets the runner via label selectors; if no runner
+  # matches, the job is cancelled after the runner pool's default
+  # 24h queue timeout. With a runner registered, the full CUDA build
+  # + PTX validation pipeline runs on every PR.
+  #
+  # The build runs in a single check entry (not a matrix) so the PR
+  # check list shows one CUDA build rather than two (debug + release).
+  # Both profiles are built and validated inside one job via a shell
+  # loop; PTX artifacts are uploaded under per-profile names.
+  cuda-build:
+    name: "CUDA build [self-hosted] (sm_120)"
     runs-on: [self-hosted, linux, x64, gpu, cuda]
-    timeout-minutes: 20
+    timeout-minutes: 30
+    env:
+      MYELIN_CUDA_ARCH: sm_120
+      MYELIN_PTX_VERSION: "8.5"
     steps:
+      - name: Confirm self-hosted runner
+        run: |
+          echo "::notice title=Self-hosted runner::This job is running on a self-hosted Actions runner, not a GitHub-hosted one. See ./actions-runner/ (gitignored) for the local install."
+          echo "Runner: $(hostname)"
+          echo "OS: $(uname -srm)"
+          echo "CUDA: $(nvcc --version 2>/dev/null | tail -1)"
+
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
-      - name: CUDA diagnostics
+      - name: nvidia-smi (informational, non-blocking)
+        continue-on-error: true
         run: |
-          nvidia-smi
+          echo "::group::nvidia-smi"
+          nvidia-smi || echo "nvidia-smi failed (driver mismatch is non-fatal; nvcc + cargo build still proceed)"
+          echo "::endgroup::"
+
+      - name: nvcc --version (required for build)
+        run: |
+          echo "::group::nvcc"
           nvcc --version
+          echo "::endgroup::"
 
-      - name: Build with CUDA feature
-        env:
-          MYELIN_CUDA_ARCH: sm_120
-          MYELIN_PTX_VERSION: "8.5"
-        run: cargo build --locked --features cuda -vv
+      - name: Build (debug)
+        run: cargo build --locked --features cuda
 
-      - name: Verify generated PTX is non-stub
+      - name: Build (release)
+        run: cargo build --locked --features cuda --release
+
+      - name: Clippy with CUDA feature (debug)
+        run: cargo clippy --locked --features cuda -- -D warnings
+
+      - name: Test (debug, with CUDA feature)
+        run: cargo test --locked --features cuda
+
+      - name: Verify PTX output is non-stub
         shell: bash
         run: |
           set -euo pipefail
-          ptx_dir="$(ls -td target/debug/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
-          test -n "$ptx_dir"
-          test -d "$ptx_dir"
-
-          for f in spiking_network_sm_120.ptx vector_similarity_sm_120.ptx satsolver_sm_120.ptx; do
-            test -f "$ptx_dir/$f"
-            grep -q '^\.target sm_120' "$ptx_dir/$f"
+          for profile in debug release; do
+            ptx_dir="$(ls -td target/$profile/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
+            if [ -z "$ptx_dir" ]; then
+              echo "::error::Could not find PTX output directory for profile=$profile"
+              exit 1
+            fi
+            for f in spiking_network_sm_120.ptx vector_similarity_sm_120.ptx satsolver_sm_120.ptx; do
+              if [ ! -f "$ptx_dir/$f" ]; then
+                echo "::error::Missing PTX file ($profile): $f"
+                exit 1
+              fi
+              if ! grep -q '^\.target sm_120' "$ptx_dir/$f"; then
+                echo "::error::PTX file ($profile) $f does not target sm_120"
+                exit 1
+              fi
+              echo "✓ $profile: $f targets sm_120"
+            done
           done
 
-      - name: CUDA smoke done
-        run: echo "CUDA build and PTX verification passed"
+      - name: Validate PTX kernel symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          # PTX entry lines look like:
+          #   .entry lif_step(
+          #   .entry lif_step_weighted(
+          # so a substring search for "lif_step" would falsely match
+          # "lif_step_weighted". Use a word-boundary-anchored ERE that
+          # requires the kernel name to be followed by a non-identifier
+          # character (here always "(").
+          for profile in debug release; do
+            ptx_dir="$(ls -td target/$profile/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
+            echo ""
+            echo "Checking kernel entry points in $profile PTX files..."
+
+            for kernel in poisson_encode lif_step lif_step_weighted spike_rate \
+                          reset_membrane stdp_update neuro_bias_logits \
+                          membrane_dv_dt_reduce_pass1 routing_entropy_reduce_pass1 \
+                          latent_reduce_pass2; do
+              if grep -Eq "\\.entry[[:space:]]+${kernel}[[:space:]]*\(" "$ptx_dir/spiking_network_sm_120.ptx"; then
+                echo "✓ $profile spiking_network: $kernel"
+              else
+                echo "::error::Missing kernel entry: $kernel in $profile spiking_network PTX"
+                exit 1
+              fi
+            done
+
+            for kernel in cosine_similarity_batched cosine_similarity_top_k; do
+              if grep -Eq "\\.entry[[:space:]]+${kernel}[[:space:]]*\(" "$ptx_dir/vector_similarity_sm_120.ptx"; then
+                echo "✓ $profile vector_similarity: $kernel"
+              else
+                echo "::error::Missing kernel entry: $kernel in $profile vector_similarity PTX"
+                exit 1
+              fi
+            done
+
+            for kernel in satsolver_init satsolver_step satsolver_aux_update \
+                          satsolver_check_solution satsolver_extract \
+                          satsolver_best_reduce_pass1 satsolver_best_reduce_pass2; do
+              if grep -Eq "\\.entry[[:space:]]+${kernel}[[:space:]]*\(" "$ptx_dir/satsolver_sm_120.ptx"; then
+                echo "✓ $profile satsolver: $kernel"
+              else
+                echo "::error::Missing kernel entry: $kernel in $profile satsolver PTX"
+                exit 1
+              fi
+            done
+          done
+          echo ""
+          echo "All kernel entry points verified for both debug and release."
+
+      - name: Upload PTX artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ptx-sm_120
+          path: |
+            target/debug/build/myelin-accelerator-*/out/*.ptx
+            target/release/build/myelin-accelerator-*/out/*.ptx
+          retention-days: 30
+
+      - name: CUDA build done
+        run: echo "CUDA build (debug + release, sm_120) passed"

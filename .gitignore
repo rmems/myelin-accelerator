@@ -20,3 +20,17 @@ test.ptx
 # Cargo / Rust scratch files
 *.rmeta
 *.rlib
+
+# Local sandbox artifacts
+myelin-accelerator/
+.hermes/
+
+# Self-hosted Actions runner installs and their state.
+# These contain credentials (.credentials, .credentials_rsaparams)
+# and a runner registration bound to one repo. They are intentionally
+# excluded from the remote.
+actions-runner/
+**/actions-runner/
+
+# Kilo CLI local session state
+.kilo/

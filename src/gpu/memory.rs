@@ -1,3 +1,6 @@
+// Copyright 2026 Raul Mc
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // ════════════════════════════════════════════════════════════════════
 //  gpu/memory.rs — GPU device buffer wrapper
 // ════════════════════════════════════════════════════════════════════
@@ -50,6 +53,11 @@ impl<T: cust::memory::DeviceCopy + Default + Clone> GpuBuffer<T> {
     /// Number of elements.
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    /// Returns `true` if the buffer contains zero elements.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     /// Raw device pointer (for kernel launches via `cust`).
