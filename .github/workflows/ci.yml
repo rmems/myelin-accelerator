@@ -56,15 +56,22 @@ jobs:
       - name: Cargo build without default features (release)
         run: cargo build --locked --no-default-features --release
 
-  # ── CUDA build & validation ────────────────────────────────────────────────
-  # Runs on PRs and pushes when a self-hosted GPU runner is registered
-  # to this repository. The job targets the runner via label selectors;
-  # if no runner matches, the job is cancelled after the runner pool's
-  # default 24h queue timeout. With a runner registered (see
-  # `myelin-accelerator-runner` in the repo's actions/runners list) the
-  # full CUDA build + PTX validation pipeline runs.
+  # ── CUDA build & validation (SELF-HOSTED GPU RUNNER) ─────────────────────
+  # This job targets a self-hosted Actions runner registered to this
+  # repository with the labels [self-hosted, linux, x64, gpu, cuda].
+  # The PR check list will display the job name with the [self-hosted]
+  # prefix; the GitHub Actions UI also tags these jobs with a small
+  # "self-hosted" badge once they're claimed by the runner. Required
+  # label matchers and the runner registration are documented in
+  # ./actions-runner/myelin-accelerator-runner/.runner
+  # (directory is gitignored; see .gitignore).
+  #
+  # The job targets the runner via label selectors; if no runner
+  # matches, the job is cancelled after the runner pool's default
+  # 24h queue timeout. With a runner registered, the full CUDA build
+  # + PTX validation pipeline runs on every PR.
   cuda-build:
-    name: "CUDA build (${{ matrix.build_type }}, ${{ matrix.cuda_arch }})"
+    name: "CUDA build [self-hosted] (${{ matrix.build_type }}, ${{ matrix.cuda_arch }})"
     runs-on: [self-hosted, linux, x64, gpu, cuda]
     timeout-minutes: 30
     strategy:
@@ -73,6 +80,13 @@ jobs:
         build_type: [debug, release]
         cuda_arch: [sm_120]
     steps:
+      - name: Confirm self-hosted runner
+        run: |
+          echo "::notice title=Self-hosted runner::This job is running on a self-hosted Actions runner, not a GitHub-hosted one. See ./actions-runner/ (gitignored) for the local install."
+          echo "Runner: $(hostname)"
+          echo "OS: $(uname -srm)"
+          echo "CUDA: $(nvcc --version 2>/dev/null | tail -1)"
+
       - name: Checkout
         uses: actions/checkout@v4
 

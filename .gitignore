@@ -24,3 +24,10 @@ test.ptx
 # Local sandbox artifacts
 myelin-accelerator/
 .hermes/
+
+# Self-hosted Actions runner installs and their state.
+# These contain credentials (.credentials, .credentials_rsaparams)
+# and a runner registration bound to one repo. They are intentionally
+# excluded from the remote.
+actions-runner/
+**/actions-runner/
