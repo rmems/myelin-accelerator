@@ -20,3 +20,7 @@ test.ptx
 # Cargo / Rust scratch files
 *.rmeta
 *.rlib
+
+# Local sandbox artifacts
+myelin-accelerator/
+.hermes/

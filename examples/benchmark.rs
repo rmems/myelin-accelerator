@@ -51,87 +51,94 @@ struct Config {
 }
 
 impl Config {
+    // `std::env::args` is a developer-facing CLI helper; the only inputs it
+    // reads are local flag values, never secrets or auth material, so the
+    // "args should not be used for security operations" lint is a false
+    // positive here. Suppressed with nosemgrep / opengrep markers below.
+    #[allow(clippy::disallowed_methods)]
     fn from_args() -> Self {
+        // nosemgrep: rust.lang.security.args.args -- developer CLI flags only
         let args: Vec<String> = std::env::args().collect();
-        let mut warmup = 10;
-        let mut iterations = 100;
-        let mut baseline = None;
-        let mut output_prefix = "benchmark_results".to_string();
+        let parsed = Self::parse_flags(&args).unwrap_or_else(|| {
+            eprintln!("Use --help for usage information.");
+            std::process::exit(2);
+        });
+        Self::validate(parsed)
+    }
 
+    fn parse_flags(args: &[String]) -> Option<RawConfig> {
+        let mut raw = RawConfig::default();
         let mut i = 1;
         while i < args.len() {
             match args[i].as_str() {
                 "--warmup" => {
-                    i += 1;
-                    if i >= args.len() {
-                        eprintln!("--warmup requires a value");
-                        std::process::exit(1);
-                    }
-                    warmup = args[i].parse().unwrap_or_else(|_| {
-                        eprintln!("--warmup requires a number");
-                        std::process::exit(1);
-                    });
+                    raw.warmup = Some(consume_value(args, &mut i, "--warmup")?);
                 }
                 "--iterations" | "-n" => {
-                    i += 1;
-                    if i >= args.len() {
-                        eprintln!("--iterations requires a value");
-                        std::process::exit(1);
-                    }
-                    iterations = args[i].parse().unwrap_or_else(|_| {
-                        eprintln!("--iterations requires a number");
-                        std::process::exit(1);
-                    });
+                    raw.iterations = Some(consume_value(args, &mut i, "--iterations")?);
                 }
                 "--baseline" => {
-                    i += 1;
-                    if i >= args.len() {
-                        eprintln!("--baseline requires a value");
-                        std::process::exit(1);
-                    }
-                    baseline = Some(args[i].clone());
+                    raw.baseline = Some(consume_value(args, &mut i, "--baseline")?);
                 }
                 "--output" | "-o" => {
-                    i += 1;
-                    if i >= args.len() {
-                        eprintln!("--output requires a value");
-                        std::process::exit(1);
-                    }
-                    output_prefix = args[i].clone();
+                    raw.output_prefix = Some(consume_value(args, &mut i, "--output")?);
                 }
                 "--help" | "-h" => {
-                    println!("Usage: benchmark [OPTIONS]");
-                    println!();
-                    println!("Options:");
-                    println!("  --warmup <N>        Warmup iterations (default: 10)");
-                    println!("  --iterations <N>    Timed iterations (default: 100)");
-                    println!("  --baseline <FILE>   Compare against a previous JSON result");
-                    println!(
-                        "  --output <PREFIX>   Output file prefix (default: benchmark_results)"
-                    );
-                    println!("  -h, --help          Show this help");
+                    print_help();
                     std::process::exit(0);
                 }
                 other => {
                     eprintln!("Unknown argument: {other}");
-                    std::process::exit(1);
+                    return None;
                 }
             }
             i += 1;
         }
+        Some(raw)
+    }
 
-        if iterations == 0 {
+    fn validate(raw: RawConfig) -> Self {
+        if raw.iterations == Some(0) {
             eprintln!("--iterations must be > 0");
             std::process::exit(1);
         }
-
         Config {
-            warmup,
-            iterations,
-            baseline,
-            output_prefix,
+            warmup: raw.warmup.unwrap_or(10),
+            iterations: raw.iterations.unwrap_or(100),
+            baseline: raw.baseline,
+            output_prefix: raw
+                .output_prefix
+                .unwrap_or_else(|| "benchmark_results".to_string()),
         }
     }
+}
+
+#[derive(Default)]
+struct RawConfig {
+    warmup: Option<usize>,
+    iterations: Option<usize>,
+    baseline: Option<String>,
+    output_prefix: Option<String>,
+}
+
+fn consume_value(args: &[String], i: &mut usize, flag: &str) -> Option<String> {
+    *i += 1;
+    if *i >= args.len() {
+        eprintln!("{flag} requires a value");
+        return None;
+    }
+    Some(args[*i].clone())
+}
+
+fn print_help() {
+    println!("Usage: benchmark [OPTIONS]");
+    println!();
+    println!("Options:");
+    println!("  --warmup <N>        Warmup iterations (default: 10)");
+    println!("  --iterations <N>    Timed iterations (default: 100)");
+    println!("  --baseline <FILE>   Compare against a previous JSON result");
+    println!("  --output <PREFIX>   Output file prefix (default: benchmark_results)");
+    println!("  -h, --help          Show this help");
 }
 
 // ── Benchmark result types ──────────────────────────────────────────────────
@@ -251,113 +258,128 @@ fn collect_gpu_info() -> Option<GpuInfo> {
 // ── Bitpacking benchmarks ───────────────────────────────────────────────────
 
 fn bench_bitpacking(config: &Config) -> Vec<BenchmarkResult> {
-    use myelin_accelerator::bitpacking::{
-        pack_binary, pack_ternary, unpack_binary, unpack_ternary,
-    };
-
     let mut results = Vec::new();
-
-    // Binary packing - small (256 elements)
-    let binary_small: Vec<bool> = (0..256).map(|i| i % 3 == 0).collect();
-    results.push(run_benchmark(
-        "bitpack_binary_pack_256",
-        config.warmup,
-        config.iterations,
-        || {
-            let _ = pack_binary(&binary_small);
-        },
-    ));
-
-    // Binary unpacking - small
-    let packed_small = pack_binary(&binary_small);
-    results.push(run_benchmark(
-        "bitpack_binary_unpack_256",
-        config.warmup,
-        config.iterations,
-        || {
-            let _ = unpack_binary(&packed_small, Some(256));
-        },
-    ));
-
-    // Binary packing - large (65536 elements)
-    let binary_large: Vec<bool> = (0..65536).map(|i| i % 5 < 2).collect();
-    results.push(run_benchmark(
-        "bitpack_binary_pack_65536",
-        config.warmup,
-        config.iterations,
-        || {
-            let _ = pack_binary(&binary_large);
-        },
-    ));
-
-    // Binary unpacking - large
-    let packed_large = pack_binary(&binary_large);
-    results.push(run_benchmark(
-        "bitpack_binary_unpack_65536",
-        config.warmup,
-        config.iterations,
-        || {
-            let _ = unpack_binary(&packed_large, Some(65536));
-        },
-    ));
-
-    // Ternary packing - small (256 elements)
-    let ternary_small: Vec<i8> = (0..256)
-        .map(|i| match i % 3 {
-            0 => 0i8,
-            1 => 1i8,
-            _ => -1i8,
-        })
-        .collect();
-    results.push(run_benchmark(
-        "bitpack_ternary_pack_256",
-        config.warmup,
-        config.iterations,
-        || {
-            let _ = pack_ternary(&ternary_small);
-        },
-    ));
-
-    // Ternary unpacking - small
-    let packed_tsmall = pack_ternary(&ternary_small);
-    results.push(run_benchmark(
-        "bitpack_ternary_unpack_256",
-        config.warmup,
-        config.iterations,
-        || {
-            let _ = unpack_ternary(&packed_tsmall, Some(256));
-        },
-    ));
-
-    // Ternary packing - large (65536 elements)
-    let ternary_large: Vec<i8> = (0..65536)
-        .map(|i| match i % 3 {
-            0 => 0i8,
-            1 => 1i8,
-            _ => -1i8,
-        })
-        .collect();
-    results.push(run_benchmark(
-        "bitpack_ternary_pack_65536",
-        config.warmup,
-        config.iterations,
-        || {
-            let _ = pack_ternary(&ternary_large);
-        },
-    ));
-
-    // Ternary unpacking - large
-    let packed_tlarge = pack_ternary(&ternary_large);
-    results.push(run_benchmark(
-        "bitpack_ternary_unpack_65536",
-        config.warmup,
-        config.iterations,
-        || {
-            let _ = unpack_ternary(&packed_tlarge, Some(65536));
-        },
-    ));
-
+    results.extend(bench_binary_pack(config));
+    results.extend(bench_binary_unpack(config));
+    results.extend(bench_ternary_pack(config));
+    results.extend(bench_ternary_unpack(config));
     results
+}
+
+fn bench_binary_pack(config: &Config) -> Vec<BenchmarkResult> {
+    use myelin_accelerator::bitpacking::pack_binary;
+
+    let small: Vec<bool> = (0..256).map(|i| i % 3 == 0).collect();
+    let large: Vec<bool> = (0..65536).map(|i| i % 5 < 2).collect();
+
+    vec![
+        run_benchmark(
+            "bitpack_binary_pack_256",
+            config.warmup,
+            config.iterations,
+            || {
+                let _ = pack_binary(&small);
+            },
+        ),
+        run_benchmark(
+            "bitpack_binary_pack_65536",
+            config.warmup,
+            config.iterations,
+            || {
+                let _ = pack_binary(&large);
+            },
+        ),
+    ]
+}
+
+fn bench_binary_unpack(config: &Config) -> Vec<BenchmarkResult> {
+    use myelin_accelerator::bitpacking::{pack_binary, unpack_binary};
+
+    let small_src: Vec<bool> = (0..256).map(|i| i % 3 == 0).collect();
+    let large_src: Vec<bool> = (0..65536).map(|i| i % 5 < 2).collect();
+    let small = pack_binary(&small_src);
+    let large = pack_binary(&large_src);
+
+    vec![
+        run_benchmark(
+            "bitpack_binary_unpack_256",
+            config.warmup,
+            config.iterations,
+            || {
+                let _ = unpack_binary(&small, Some(256));
+            },
+        ),
+        run_benchmark(
+            "bitpack_binary_unpack_65536",
+            config.warmup,
+            config.iterations,
+            || {
+                let _ = unpack_binary(&large, Some(65536));
+            },
+        ),
+    ]
+}
+
+fn bench_ternary_pack(config: &Config) -> Vec<BenchmarkResult> {
+    use myelin_accelerator::bitpacking::pack_ternary;
+
+    let small: Vec<i8> = ternary_pattern(256);
+    let large: Vec<i8> = ternary_pattern(65536);
+
+    vec![
+        run_benchmark(
+            "bitpack_ternary_pack_256",
+            config.warmup,
+            config.iterations,
+            || {
+                let _ = pack_ternary(&small);
+            },
+        ),
+        run_benchmark(
+            "bitpack_ternary_pack_65536",
+            config.warmup,
+            config.iterations,
+            || {
+                let _ = pack_ternary(&large);
+            },
+        ),
+    ]
+}
+
+fn bench_ternary_unpack(config: &Config) -> Vec<BenchmarkResult> {
+    use myelin_accelerator::bitpacking::{pack_ternary, unpack_ternary};
+
+    let small = pack_ternary(&ternary_pattern(256));
+    let large = pack_ternary(&ternary_pattern(65536));
+
+    vec![
+        run_benchmark(
+            "bitpack_ternary_unpack_256",
+            config.warmup,
+            config.iterations,
+            || {
+                let _ = unpack_ternary(&small, Some(256));
+            },
+        ),
+        run_benchmark(
+            "bitpack_ternary_unpack_65536",
+            config.warmup,
+            config.iterations,
+            || {
+                let _ = unpack_ternary(&large, Some(65536));
+            },
+        ),
+    ]
+}
+
+fn ternary_pattern(n: usize) -> Vec<i8> {
+    (0..n)
+        .map(|i| match i % 3 {
+            0 => 0i8,
+            1 => 1i8,
+            _ => -1i8,
+        })
+        .collect()
 }
 
 // ── GPU kernel benchmarks (requires cuda feature) ───────────────────────────
