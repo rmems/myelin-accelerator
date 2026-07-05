@@ -82,9 +82,10 @@ jobs:
           components: clippy
 
       - name: CUDA diagnostics
+        continue-on-error: true
         run: |
           echo "::group::nvidia-smi"
-          nvidia-smi
+          nvidia-smi || echo "nvidia-smi failed (driver mismatch is non-fatal; nvcc + cargo build still proceed)"
           echo "::endgroup::"
           echo "::group::nvcc"
           nvcc --version
