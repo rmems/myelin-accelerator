@@ -120,6 +120,9 @@ jobs:
       - name: Clippy with CUDA feature (debug)
         run: cargo clippy --locked --features cuda -- -D warnings
 
+      - name: Test (debug, with CUDA feature)
+        run: cargo test --locked --features cuda
+
       - name: Verify PTX output is non-stub
         shell: bash
         run: |
@@ -147,6 +150,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # PTX entry lines look like:
+          #   .entry lif_step(
+          #   .entry lif_step_weighted(
+          # so a substring search for "lif_step" would falsely match
+          # "lif_step_weighted". Use a word-boundary-anchored ERE that
+          # requires the kernel name to be followed by a non-identifier
+          # character (here always "(").
           for profile in debug release; do
             ptx_dir="$(ls -td target/$profile/build/myelin-accelerator-*/out 2>/dev/null | head -n1 || true)"
             echo ""
@@ -156,7 +166,7 @@ jobs:
                           reset_membrane stdp_update neuro_bias_logits \
                           membrane_dv_dt_reduce_pass1 routing_entropy_reduce_pass1 \
                           latent_reduce_pass2; do
-              if grep -q "\\.entry.*${kernel}" "$ptx_dir/spiking_network_sm_120.ptx"; then
+              if grep -Eq "\\.entry[[:space:]]+${kernel}[[:space:]]*\(" "$ptx_dir/spiking_network_sm_120.ptx"; then
                 echo "✓ $profile spiking_network: $kernel"
               else
                 echo "::error::Missing kernel entry: $kernel in $profile spiking_network PTX"
@@ -165,7 +175,7 @@ jobs:
             done
 
             for kernel in cosine_similarity_batched cosine_similarity_top_k; do
-              if grep -q "\\.entry.*${kernel}" "$ptx_dir/vector_similarity_sm_120.ptx"; then
+              if grep -Eq "\\.entry[[:space:]]+${kernel}[[:space:]]*\(" "$ptx_dir/vector_similarity_sm_120.ptx"; then
                 echo "✓ $profile vector_similarity: $kernel"
               else
                 echo "::error::Missing kernel entry: $kernel in $profile vector_similarity PTX"
@@ -176,7 +186,7 @@ jobs:
             for kernel in satsolver_init satsolver_step satsolver_aux_update \
                           satsolver_check_solution satsolver_extract \
                           satsolver_best_reduce_pass1 satsolver_best_reduce_pass2; do
-              if grep -q "\\.entry.*${kernel}" "$ptx_dir/satsolver_sm_120.ptx"; then
+              if grep -Eq "\\.entry[[:space:]]+${kernel}[[:space:]]*\(" "$ptx_dir/satsolver_sm_120.ptx"; then
                 echo "✓ $profile satsolver: $kernel"
               else
                 echo "::error::Missing kernel entry: $kernel in $profile satsolver PTX"

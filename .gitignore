@@ -31,3 +31,6 @@ myelin-accelerator/
 # excluded from the remote.
 actions-runner/
 **/actions-runner/
+
+# Kilo CLI local session state
+.kilo/
