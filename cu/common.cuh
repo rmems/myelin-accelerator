@@ -11,6 +11,7 @@
 #include <cuda_runtime.h>
 #include <math.h>
 #include <limits.h>
+#include <cstdint>
 
 // ── Numeric constants ──────────────────────────────────────────────
 #define SHIP_PI       3.14159265358979323846f
