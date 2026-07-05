@@ -57,59 +57,14 @@ jobs:
         run: cargo build --locked --no-default-features --release
 
   # ── CUDA build & validation ────────────────────────────────────────────────
-  # Two-job pattern: `cuda-availability` runs on ubuntu-latest and queries
-  # the self-hosted runner registry. If no GPU runner is online (or the
-  # token lacks runner admin scope), the build job is skipped cleanly so
-  # PRs are not blocked. When a matching runner is online, the build job
-  # targets it and runs the full CUDA build + PTX validation pipeline.
-  cuda-availability:
-    name: CUDA availability check
-    runs-on: ubuntu-latest
-    permissions:
-      # Listing self-hosted runners for a repository requires the
-      # `administration` permission on the GITHUB_TOKEN; `actions: read`
-      # is documented for artifacts/workflows but returns 403 for the
-      # runners endpoint. See GitHub REST docs:
-      #   /repos/{owner}/{repo}/actions/runners
-      #   -> "GitHub Apps must have the administration permission for
-      #      repositories ... to manage or view self-hosted runner
-      #      resources."
-      administration: read
-    outputs:
-      has_gpu_runner: ${{ steps.check.outputs.has_gpu_runner || 'false' }}
-    steps:
-      - name: Probe self-hosted GPU runners
-        id: check
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          script: |
-            try {
-              const runners = await github.paginate(github.rest.actions.listSelfHostedRunnersForRepo, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                per_page: 100,
-              });
-              const required = ['self-hosted', 'linux', 'x64', 'gpu', 'cuda'];
-              const online = runners.find(r => r.status === 'online' &&
-                required.every(label => r.labels?.some(l => l.name === label)));
-              if (!online) {
-                core.info('No self-hosted GPU runner online; CUDA build will be skipped.');
-                core.setOutput('has_gpu_runner', 'false');
-              } else {
-                core.info(`Self-hosted GPU runner online: ${online.name} (id ${online.id})`);
-                core.setOutput('has_gpu_runner', 'true');
-              }
-            } catch (err) {
-              core.warning(`Runner probe failed (${err.status || 'unknown'}): ${err.message}`);
-              core.info('Falling back to has_gpu_runner=false so PR is not blocked.');
-              core.setOutput('has_gpu_runner', 'false');
-            }
-
+  # Runs on PRs and pushes when a self-hosted GPU runner is registered
+  # to this repository. The job targets the runner via label selectors;
+  # if no runner matches, the job is cancelled after the runner pool's
+  # default 24h queue timeout. With a runner registered (see
+  # `myelin-accelerator-runner` in the repo's actions/runners list) the
+  # full CUDA build + PTX validation pipeline runs.
   cuda-build:
     name: "CUDA build (${{ matrix.build_type }}, ${{ matrix.cuda_arch }})"
-    needs: cuda-availability
-    if: needs.cuda-availability.outputs.has_gpu_runner == 'true'
     runs-on: [self-hosted, linux, x64, gpu, cuda]
     timeout-minutes: 30
     strategy:
