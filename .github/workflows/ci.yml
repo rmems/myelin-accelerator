@@ -58,35 +58,44 @@ jobs:
 
   # ── CUDA build & validation ────────────────────────────────────────────────
   # Two-job pattern: `cuda-availability` runs on ubuntu-latest and queries
-  # the self-hosted runner registry. If no GPU runner is online, the build
-  # job is skipped (not queued indefinitely) so PRs are not blocked.
-  # If a runner is online, the build job targets it and runs the full
-  # CUDA build + PTX validation pipeline.
+  # the self-hosted runner registry. If no GPU runner is online (or the
+  # token lacks runner admin scope), the build job is skipped cleanly so
+  # PRs are not blocked. When a matching runner is online, the build job
+  # targets it and runs the full CUDA build + PTX validation pipeline.
   cuda-availability:
     name: CUDA availability check
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
     outputs:
-      has_gpu_runner: ${{ steps.check.outputs.has_gpu_runner }}
+      has_gpu_runner: ${{ steps.check.outputs.has_gpu_runner || 'false' }}
     steps:
       - name: Probe self-hosted GPU runners
         id: check
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
-            const runners = await github.paginate(github.rest.actions.listSelfHostedRunnersForRepo, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              per_page: 100,
-            });
-            const required = ['self-hosted', 'linux', 'x64', 'gpu', 'cuda'];
-            const online = runners.find(r => r.status === 'online' &&
-              required.every(label => r.labels?.some(l => l.name === label)));
-            if (!online) {
-              core.info('No self-hosted GPU runner online; CUDA build will be skipped.');
+            try {
+              const runners = await github.paginate(github.rest.actions.listSelfHostedRunnersForRepo, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100,
+              });
+              const required = ['self-hosted', 'linux', 'x64', 'gpu', 'cuda'];
+              const online = runners.find(r => r.status === 'online' &&
+                required.every(label => r.labels?.some(l => l.name === label)));
+              if (!online) {
+                core.info('No self-hosted GPU runner online; CUDA build will be skipped.');
+                core.setOutput('has_gpu_runner', 'false');
+              } else {
+                core.info(`Self-hosted GPU runner online: ${online.name} (id ${online.id})`);
+                core.setOutput('has_gpu_runner', 'true');
+              }
+            } catch (err) {
+              core.warning(`Runner probe failed (${err.status || 'unknown'}): ${err.message}`);
+              core.info('Falling back to has_gpu_runner=false so PR is not blocked.');
               core.setOutput('has_gpu_runner', 'false');
-            } else {
-              core.info(`Self-hosted GPU runner online: ${online.name} (id ${online.id})`);
-              core.setOutput('has_gpu_runner', 'true');
             }
 
   cuda-build:
