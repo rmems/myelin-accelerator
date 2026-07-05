@@ -72,16 +72,16 @@ impl Config {
         while i < args.len() {
             match args[i].as_str() {
                 "--warmup" => {
-                    raw.warmup = Some(consume_value(args, &mut i, "--warmup")?);
+                    raw.warmup = Some(consume_usize(args, &mut i, "--warmup")?);
                 }
                 "--iterations" | "-n" => {
-                    raw.iterations = Some(consume_value(args, &mut i, "--iterations")?);
+                    raw.iterations = Some(consume_usize(args, &mut i, "--iterations")?);
                 }
                 "--baseline" => {
-                    raw.baseline = Some(consume_value(args, &mut i, "--baseline")?);
+                    raw.baseline = Some(consume_string(args, &mut i, "--baseline")?);
                 }
                 "--output" | "-o" => {
-                    raw.output_prefix = Some(consume_value(args, &mut i, "--output")?);
+                    raw.output_prefix = Some(consume_string(args, &mut i, "--output")?);
                 }
                 "--help" | "-h" => {
                     print_help();
@@ -121,13 +121,24 @@ struct RawConfig {
     output_prefix: Option<String>,
 }
 
-fn consume_value(args: &[String], i: &mut usize, flag: &str) -> Option<String> {
+fn consume_string(args: &[String], i: &mut usize, flag: &str) -> Option<String> {
     *i += 1;
     if *i >= args.len() {
         eprintln!("{flag} requires a value");
         return None;
     }
     Some(args[*i].clone())
+}
+
+fn consume_usize(args: &[String], i: &mut usize, flag: &str) -> Option<usize> {
+    let raw = consume_string(args, i, flag)?;
+    match raw.parse() {
+        Ok(n) => Some(n),
+        Err(_) => {
+            eprintln!("{flag} requires a non-negative integer, got \"{raw}\"");
+            None
+        }
+    }
 }
 
 fn print_help() {
