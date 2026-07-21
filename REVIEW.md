@@ -228,20 +228,23 @@ unblocked.
 
 ## 7. Host baseline (ShipOfTheseus, branch `test/cuda-rust`)
 
-Recorded while validating the local GPU quality gate:
+Recorded while validating the local GPU quality gate (updated after toolkit
+**13.3.1** install; `/usr/local/cuda` and `/etc/alternatives/cuda` →
+`/usr/local/cuda-13.3`):
 
 | Layer | Observed |
 |-------|----------|
 | GPU | NVIDIA GeForce RTX 5080 (`sm_120`), ~16 GB |
 | Driver | 610.x KMD; **CUDA UMD 13.3** |
-| Toolkit (active symlink at validate time) | **13.2.x** via `/usr/local/cuda` → `cuda-13.2` |
-| Toolkit (target) | **13.3** once installed; set `CUDA_NVCC` / update symlink |
-| Nsight Systems | `nsys` 2025.6.x (upgrade with toolkit or standalone RPM) |
-| Nsight Compute | `ncu` 2026.1.x |
-| Optimized bench (`--profile bench --features bench,cuda`) | GPU kernels run (~5 µs mean poisson_encode / satsolver_extract) |
+| Toolkit (active) | **13.3.1** (`nvcc` release **13.3**, V13.3.73) via `/usr/local/cuda` |
+| Prior toolkit still on disk | `cuda-13.1`, `cuda-13.2` (not default) |
+| Nsight Systems | `nsys` **2026.1.3** (from active toolkit PATH) |
+| Nsight Compute | `ncu` **2026.2.1** |
+| Optimized bench (`--profile bench --features bench,cuda`) | GPU kernels run (~5 µs mean poisson_encode / satsolver_extract) on 13.2 and re-checked on 13.3 |
 
-**Compatibility:** 13.2 remains a supported build host; 13.3 is preferred
-locally when available. Do not require 13.3-only in cloud CI.
+**Compatibility:** 13.2 remains a supported build host if someone pins an older
+tree with `CUDA_NVCC`. Local default is **13.3**. Do not require 13.3-only in
+cloud CI.
 
 ## Files changed in this pass
 

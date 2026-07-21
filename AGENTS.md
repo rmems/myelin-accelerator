@@ -11,7 +11,6 @@ cargo test --locked
 cargo build --locked --no-default-features
 ```
 
-Local GPU path (after CPU checks): toolkit **13.2+** recommended, **13.3**
-preferred when present. Point `CUDA_NVCC` at the active `nvcc` if the
-`/usr/local/cuda` symlink is still on an older tree. Full local quality gate
-is documented in `REVIEW.md` §6 and `CLAUDE.md` (not a cloud-only check).
+Local GPU path (after CPU checks): toolkit **13.2+** OK; ShipOfTheseus
+default is **13.3** via `/usr/local/cuda`. Full local quality gate is in
+`REVIEW.md` §6–§7 and `CLAUDE.md` (not a cloud-only check).

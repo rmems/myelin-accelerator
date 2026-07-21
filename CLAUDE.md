@@ -15,10 +15,10 @@ search, and a SAT solver), targeting Blackwell / RTX 5080-class GPUs
   should always work in CI and sandboxed environments.
 - **`--features cuda`:** `src/gpu/` is compiled, `build.rs` invokes `nvcc` to
   compile `cu/*.cu` → PTX, embedded at compile time via `include_str!`.
-  Prefer **CUDA toolkit 13.2+** (local baseline **13.3** on ShipOfTheseus
-  when installed); keep `CUDA_NVCC` / `CUDA_HOME` pointed at the active
-  tree if `/usr/local/cuda` lags. Runtime needs an `sm_120`-capable driver
-  (≥ 570; UMD **13.x** on current Blackwell hosts).
+  Prefer **CUDA toolkit 13.2+**; ShipOfTheseus local default is **13.3.1**
+  (`/usr/local/cuda` → `cuda-13.3`). Override with `CUDA_NVCC` /
+  `CUDA_HOME` only if you intentionally use an older tree. Runtime needs
+  an `sm_120`-capable driver (≥ 570; UMD **13.x** on current Blackwell hosts).
 
 ## Build and test
 
