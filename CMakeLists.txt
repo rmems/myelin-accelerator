@@ -27,6 +27,8 @@ set(CU_SOURCES
         cu/satsolver.cu
         cu/spiking_network.cu
         cu/vector_similarity.cu)
+set(CU_HEADERS
+        cu/common.cuh)
 
 # Build each .cu → .ptx via custom command
 set(PTX_OUTPUTS "")
@@ -39,12 +41,19 @@ foreach(cu_src ${CU_SOURCES})
                     -I${CMAKE_SOURCE_DIR}/cu
                     -o ${ptx_out}
                     ${CMAKE_SOURCE_DIR}/${cu_src}
-            DEPENDS ${CMAKE_SOURCE_DIR}/${cu_src}
+            DEPENDS
+                    ${CMAKE_SOURCE_DIR}/${cu_src}
+                    ${CMAKE_SOURCE_DIR}/cu/common.cuh
             COMMENT "Compiling CUDA kernel → PTX: ${cu_src}")
     list(APPEND PTX_OUTPUTS ${ptx_out})
 endforeach()
 
-add_custom_target(cuda_kernels ALL DEPENDS ${PTX_OUTPUTS})
+# SOURCES= attaches .cu/.cuh to the target for CLion/IDE indexing so files
+# are not reported as "does not belong to any project target". Still not a
+# native CUDA language target — build produces PTX only.
+add_custom_target(cuda_kernels ALL
+        DEPENDS ${PTX_OUTPUTS}
+        SOURCES ${CU_SOURCES} ${CU_HEADERS})
 
 # ── Testing ──────────────────────────────────────────────────────────
 # CPU-safe CTest entries (no GPU required). CUDA feature build + self-hosted

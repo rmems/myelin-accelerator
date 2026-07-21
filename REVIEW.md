@@ -53,6 +53,14 @@ and CLion will refuse to reload that directory. Fix: delete
 `cmake-build-debug` and reconfigure with Ninja, or let CLion recreate the
 profile. Do **not** use CLion “New Target” / `add_executable(... .cu)` —
 that breaks CXX-only setup; use the `cuda_kernels` target instead.
+`cuda_kernels` lists `cu/*.cu` and `cu/common.cuh` via `SOURCES` so the IDE
+treats them as project files (clears “does not belong to any project target”).
+
+**Bench note:** this crate has no `[[bench]]` / `#[bench]` targets. Use
+`cargo test --features cuda -- --ignored` for the GPU unit test, and
+`cargo run --example benchmark --profile bench --features bench,cuda` for
+microbenchmarks. `cargo bench` only recompiles the lib tests under the
+bench profile and will leave `#[ignore]` tests as ignored.
 
 ## 2. `.gitignore` fix — CMakeLists.txt was never tracked
 
