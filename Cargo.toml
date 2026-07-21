@@ -22,6 +22,7 @@ anyhow    = { version = "1", features = ["backtrace"] }
 tracing   = "0.1"
 serde     = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
+nvtx      = "1"
 
 [dev-dependencies]
 proptest = "1"

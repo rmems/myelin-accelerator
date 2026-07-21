@@ -14,6 +14,8 @@ use cust::function::Function;
 use cust::module::Module;
 use std::collections::HashMap;
 
+use nvtx::{range_pop, range_push};
+
 // ── Compile-time PTX embedding ───────────────────────────────────────────────
 //
 // OUT_DIR is set by Cargo to the directory where build.rs wrote its outputs.
@@ -40,6 +42,13 @@ impl KernelModule {
     /// The PTX is JIT-compiled by the CUDA driver on first call.
     /// On sm_120 hardware with an up-to-date driver this takes < 1 s.
     pub fn load() -> GpuResult<Self> {
+        range_push!("KernelModule::load");
+        let result = Self::load_inner();
+        range_pop!();
+        result
+    }
+
+    fn load_inner() -> GpuResult<Self> {
         let mut modules = HashMap::new();
         let mut func_map = HashMap::new();
 
