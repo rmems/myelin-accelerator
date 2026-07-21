@@ -52,24 +52,9 @@ impl KernelModule {
         let mut modules = HashMap::new();
         let mut func_map = HashMap::new();
 
-        // Helper closure: load one PTX string, verify required functions exist,
-        // then register everything in the maps.
-        let mut load_and_map = |ptx: &str, mod_name: &str, funcs: &[&str]| -> GpuResult<()> {
-            let module = Self::load_module_from_ptx(ptx, mod_name)?;
-
-            for &func_name in funcs {
-                if module.get_function(func_name).is_err() {
-                    return Err(GpuError::KernelNotFound(format!(
-                        "{func_name} in {mod_name}"
-                    )));
-                }
-                func_map.insert(func_name.to_string(), mod_name.to_string());
-            }
-            modules.insert(mod_name.to_string(), module);
-            Ok(())
-        };
-
-        load_and_map(
+        Self::load_and_map(
+            &mut modules,
+            &mut func_map,
             SPIKING_NETWORK_PTX,
             "spiking_network",
             &[
@@ -85,14 +70,16 @@ impl KernelModule {
                 "latent_reduce_pass2",
             ],
         )?;
-
-        load_and_map(
+        Self::load_and_map(
+            &mut modules,
+            &mut func_map,
             VECTOR_SIMILARITY_PTX,
             "vector_similarity",
             &["cosine_similarity_batched", "cosine_similarity_top_k"],
         )?;
-
-        load_and_map(
+        Self::load_and_map(
+            &mut modules,
+            &mut func_map,
             SATSOLVER_PTX,
             "satsolver",
             &[
@@ -107,6 +94,26 @@ impl KernelModule {
         )?;
 
         Ok(Self { modules, func_map })
+    }
+
+    fn load_and_map(
+        modules: &mut HashMap<String, Module>,
+        func_map: &mut HashMap<String, String>,
+        ptx: &str,
+        mod_name: &str,
+        funcs: &[&str],
+    ) -> GpuResult<()> {
+        let module = Self::load_module_from_ptx(ptx, mod_name)?;
+        for &func_name in funcs {
+            if module.get_function(func_name).is_err() {
+                return Err(GpuError::KernelNotFound(format!(
+                    "{func_name} in {mod_name}"
+                )));
+            }
+            func_map.insert(func_name.to_string(), mod_name.to_string());
+        }
+        modules.insert(mod_name.to_string(), module);
+        Ok(())
     }
 
     /// Alias kept for satsolver call-sites.

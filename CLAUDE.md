@@ -12,7 +12,7 @@ search, and a SAT solver), targeting Blackwell / RTX 5080-class GPUs
 
 - **Default (`cuda` feature off):** `src/gpu_stub.rs` is used, `build.rs`
   writes stub PTX files, no GPU/nvcc required. This is the CPU-safe path and
-  should always work in CI and sandboxed environments.
+  is intended to work in CI and sandboxed environments without a GPU.
 - **`--features cuda`:** `src/gpu/` is compiled, `build.rs` invokes `nvcc` to
   compile `cu/*.cu` → PTX, embedded at compile time via `include_str!`.
   Prefer **CUDA toolkit 13.2+**; ShipOfTheseus local default is **13.3.1**
@@ -22,7 +22,7 @@ search, and a SAT solver), targeting Blackwell / RTX 5080-class GPUs
 
 ## Build and test
 
-Run CPU-safe checks first — these must always pass and require no GPU:
+Run CPU-safe checks first — these should pass without a GPU:
 
 ```bash
 cargo test --locked
@@ -88,10 +88,10 @@ Do not create a new build directory — reuse the existing
   only via the `cuda` feature (`cuda = ["dep:cust", "dep:nvtx"]`) so the
   CPU-safe path does not compile/link NVTX. Macros have no separate crate
   feature flag.
-- Never weaken or `#[ignore]` a failing test to make CI green; GPU-only
-  tests are already marked `#[ignore] // requires GPU + driver ≥ 570` and
-  are skipped by default — that pattern should be followed for any new
-  GPU-only test.
+- Prefer not to weaken or `#[ignore]` a failing test solely to make CI
+  green. GPU-only tests are already marked
+  `#[ignore] // requires GPU + driver ≥ 570` and are skipped by default —
+  follow that pattern for any new GPU-only test.
 
 ## See also
 
