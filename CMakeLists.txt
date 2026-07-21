@@ -4,10 +4,12 @@ project(myelin_accelerator CXX)
 set(CMAKE_CXX_STANDARD 17)
 
 # ── CUDA toolkit ─────────────────────────────────────────────────────
-# nvcc 13.2 cannot use CMake's CUDA language with GCC 16 libstdc++.
-# Mirror the flags from build.rs: compile .cu → .ptx only, using
-# -std=c++17 -D__STRICT_ANSI__ to dodge C++23 header paths.
-set(CUDA_NVCC /usr/local/cuda/bin/nvcc)
+# nvcc 13.x cannot use CMake's CUDA language with GCC 16 libstdc++
+# (first hit on 13.2; still true on 13.3 hosts). Mirror the flags from
+# build.rs: compile .cu → .ptx only, using -std=c++17 -D__STRICT_ANSI__
+# to dodge C++23 header paths.
+# Prefer /usr/local/cuda (symlink) or override: -DCUDA_NVCC=/usr/local/cuda-13.3/bin/nvcc
+set(CUDA_NVCC /usr/local/cuda/bin/nvcc CACHE FILEPATH "Path to nvcc")
 set(CUDA_ARCH sm_120)
 set(CUDA_COMMON_FLAGS
         -ptx

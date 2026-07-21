@@ -123,7 +123,8 @@ for `sm_12*` ensure a floor of `9.2`; only force-rewrite when
 
 **This quality gate is primarily for local / self-hosted builds** on a machine
 that actually has an NVIDIA GPU + matching driver + toolkit (e.g. ShipOfTheseus
-with RTX 5080 / `sm_120`, driver ≥ 570, CUDA 12.8+).
+with RTX 5080 / `sm_120`, driver ≥ 570, CUDA toolkit **13.2+**, local
+baseline **13.3** when the tree is installed; driver UMD **13.x**).
 
 Cloud GitHub-hosted runners are a poor fit for this gate:
 
@@ -225,14 +226,31 @@ unblocked.
   `gh api repos/rmems/myelin-accelerator/actions/runners` (expect status
   `online` when listening).
 
+## 7. Host baseline (ShipOfTheseus, branch `test/cuda-rust`)
+
+Recorded while validating the local GPU quality gate:
+
+| Layer | Observed |
+|-------|----------|
+| GPU | NVIDIA GeForce RTX 5080 (`sm_120`), ~16 GB |
+| Driver | 610.x KMD; **CUDA UMD 13.3** |
+| Toolkit (active symlink at validate time) | **13.2.x** via `/usr/local/cuda` → `cuda-13.2` |
+| Toolkit (target) | **13.3** once installed; set `CUDA_NVCC` / update symlink |
+| Nsight Systems | `nsys` 2025.6.x (upgrade with toolkit or standalone RPM) |
+| Nsight Compute | `ncu` 2026.1.x |
+| Optimized bench (`--profile bench --features bench,cuda`) | GPU kernels run (~5 µs mean poisson_encode / satsolver_extract) |
+
+**Compatibility:** 13.2 remains a supported build host; 13.3 is preferred
+locally when available. Do not require 13.3-only in cloud CI.
+
 ## Files changed in this pass
 
-- `CMakeLists.txt` (untracked → now trackable via `.gitignore` fix)
-- `.gitignore`
+- `CMakeLists.txt` (untracked → now trackable via `.gitignore` fix; `CUDA_NVCC` cache)
+- `.gitignore` (Nsight/cubin/compile_commands)
 - `Cargo.toml` / `Cargo.lock`
 - `src/gpu/kernel.rs` (nvtx ranges)
 - `build.rs` (sm_120 PTX version floor)
 - `.github/workflows/ci.yml` (`MYELIN_PTX_VERSION=9.2`)
 - `examples/benchmark.rs` (real GPU info + honest feature messaging)
 - `REVIEW.md` (this file)
-- `CLAUDE.md`
+- `CLAUDE.md` / `AGENTS.md`

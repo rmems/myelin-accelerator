@@ -14,9 +14,11 @@ search, and a SAT solver), targeting Blackwell / RTX 5080-class GPUs
   writes stub PTX files, no GPU/nvcc required. This is the CPU-safe path and
   should always work in CI and sandboxed environments.
 - **`--features cuda`:** `src/gpu/` is compiled, `build.rs` invokes `nvcc` to
-  compile `cu/*.cu` → PTX, embedded at compile time via `include_str!`. A
-  working CUDA 12.8+ toolkit and `sm_120`-capable driver (≥ 570) are
-  required at build and run time respectively.
+  compile `cu/*.cu` → PTX, embedded at compile time via `include_str!`.
+  Prefer **CUDA toolkit 13.2+** (local baseline **13.3** on ShipOfTheseus
+  when installed); keep `CUDA_NVCC` / `CUDA_HOME` pointed at the active
+  tree if `/usr/local/cuda` lags. Runtime needs an `sm_120`-capable driver
+  (≥ 570; UMD **13.x** on current Blackwell hosts).
 
 ## Build and test
 

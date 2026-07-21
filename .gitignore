@@ -19,6 +19,16 @@ test.ptx
 
 # Generated PTX and intermediate files
 *.ptx
+*.cubin
+
+# Nsight Systems / Nsight Compute local profiling outputs
+*.nsys-rep
+*.qdrep
+*.ncu-rep
+*.sqlite
+
+# clangd / IDE compile database (local)
+compile_commands.json
 
 # Generated benchmark result artifacts
 benchmark_results.csv
