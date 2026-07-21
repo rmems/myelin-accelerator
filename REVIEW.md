@@ -130,7 +130,8 @@ rewrote nvcc's header. PTX ISA 8.5 does not support `.target sm_120`
 
 **Fix:** leave nvcc's `.version` alone by default for non-Blackwell arches;
 for `sm_12*` ensure a floor of `9.2`; only force-rewrite when
-`MYELIN_PTX_VERSION` is set. CI now pins `9.2`.
+`MYELIN_PTX_VERSION` is set. CI does not set `MYELIN_PTX_VERSION`; `build.rs`
+applies the floor.
 
 ## 6. CUDA GPU quality gate (local-first)
 
@@ -286,7 +287,7 @@ cloud CI.
 - `Cargo.toml` / `Cargo.lock`
 - `src/gpu/kernel.rs` (nvtx ranges)
 - `build.rs` (sm_120 PTX version floor)
-- `.github/workflows/ci.yml` (`MYELIN_PTX_VERSION=9.2`)
+- `.github/workflows/ci.yml` (removed `MYELIN_PTX_VERSION` pin; added comment explaining why it is intentionally unset)
 - `examples/benchmark.rs` (real GPU info + honest feature messaging)
 - `REVIEW.md` (this file)
 - `CLAUDE.md` / `AGENTS.md`
