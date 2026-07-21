@@ -2,6 +2,23 @@
 
 Guidance for Claude (and other AI coding agents) working in this repository.
 
+## Boundaries (what not to do)
+
+- Do **not** enable CMake's native `CUDA` language (`project(... CUDA)`) on
+  this host — use the existing CXX-only + `nvcc -ptx` custom targets.
+- Do **not** use CLion "New Target" / `add_executable(... .cu)`; use the
+  `cuda_kernels` CMake target for PTX quality.
+- Do **not** re-add `CMakeLists.txt` to `.gitignore`.
+- Do **not** create a new CMake build directory; reuse `cmake-build-debug`
+  with the **Ninja** generator (not Unix Makefiles).
+- Do **not** use `cargo bench` as the GPU quality gate (no `[[bench]]` here).
+- Do **not** force-rewrite PTX `.version` to an exact value in CI; let
+  `build.rs` floor Blackwell to ≥ 9.2 and leave nvcc's header otherwise.
+- Do **not** declare `nvtx` as a non-optional dependency; it belongs only on
+  the `cuda` feature.
+- Prefer not to weaken or `#[ignore]` a failing test solely to green CI.
+  GPU-only tests use `#[ignore] // requires GPU + driver ≥ 570`.
+
 ## Project
 
 `myelin-accelerator` is a Rust crate exposing safe FFI wrappers around a set
@@ -39,8 +56,8 @@ CUDA_NVCC=/usr/local/cuda/bin/nvcc cargo build --locked --features cuda
 ### CMake / CLion integration
 
 `CMakeLists.txt` wires `nvcc` through custom commands (not CMake's native
-`CUDA` language — see `REVIEW.md` for why) so CLion can drive both the CUDA
-PTX compilation and the Cargo test suite via CTest:
+CUDA language — see the CUDA/CMake write-up in the repository root) so CLion
+can drive both the CUDA PTX compilation and the Cargo test suite via CTest:
 
 ```bash
 cmake --build cmake-build-debug --target cuda_kernels
@@ -61,39 +78,28 @@ CUDA_NVCC=/usr/local/cuda/bin/nvcc \
 ### Local CUDA GPU quality gate (preferred over cloud)
 
 Full GPU proof is **local / self-hosted** (Blackwell + driver). Cloud runners
-rarely have `sm_120`. See `REVIEW.md` §6 for the full gate. Quick local set:
+rarely have `sm_120`. Quick local set:
 
 ```bash
 export CUDA_NVCC=/usr/local/cuda/bin/nvcc
 cargo build --locked --features cuda
+# Offline assemble needs a .ptx file (not bare -arch):
+#   ptxas -arch=sm_120 -o /tmp/sn.cubin cmake-build-debug/spiking_network.ptx
 cargo test --locked --features cuda
 cargo test --locked --features cuda -- --ignored --nocapture
 cargo run --locked --example benchmark --profile bench --features bench,cuda
 ```
 
-Do not create a new build directory — reuse the existing
-`cmake-build-debug` directory tracked by the active CLion CMake profile.
-
 ## Conventions
 
-- `CMakeLists.txt` is tracked in git (do not re-add it to `.gitignore`);
-  `CMakeCache.txt`, `CMakeFiles/`, `cmake-build-*/`, `Makefile`, and
-  `cmake_install.cmake` are generated and stay ignored.
+- `CMakeLists.txt` is tracked in git; generated CMake artifacts stay ignored.
 - Keep `nvcc` flags in `CMakeLists.txt` and `build.rs` in sync
   (`-std=c++17`, `-D__STRICT_ANSI__`, `--allow-unsupported-compiler`,
-  `--expt-relaxed-constexpr`, `-Xcompiler -fno-builtin`) — they exist to
-  work around GCC/Clang host-compiler incompatibilities with `nvcc`, not out
-  of preference.
-- `nvtx` (`range_push!`/`range_pop!`) is an **optional** dependency enabled
-  only via the `cuda` feature (`cuda = ["dep:cust", "dep:nvtx"]`) so the
-  CPU-safe path does not compile/link NVTX. Macros have no separate crate
-  feature flag.
-- Prefer not to weaken or `#[ignore]` a failing test solely to make CI
-  green. GPU-only tests are already marked
-  `#[ignore] // requires GPU + driver ≥ 570` and are skipped by default —
-  follow that pattern for any new GPU-only test.
+  `--expt-relaxed-constexpr`, `-Xcompiler -fno-builtin`).
+- `nvtx` (`range_push!`/`range_pop!`) is optional under
+  `cuda = ["dep:cust", "dep:nvtx"]` so the CPU-safe path does not link NVTX.
 
 ## See also
 
-- `REVIEW.md` — detailed record of the CUDA/CMake tooling and `nvtx` fixes.
+- Repository root CUDA/CMake quality-gate notes (companion agent primer).
 - `AGENTS.md` — brief agent build/test primer.
