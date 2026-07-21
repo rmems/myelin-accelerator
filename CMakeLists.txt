@@ -106,3 +106,8 @@ add_test(NAME cargo_build_bench_example
 add_test(NAME cuda_kernel_build
         COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target cuda_kernels
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# Do not add_executable() on .cu files here. CLion "New Target" / native CUDA
+# language is intentionally avoided (GCC 16 + nvcc host front-end). Quality
+# for cu/*.cu and cu/common.cuh is: target `cuda_kernels` (nvcc -ptx) and/or
+# `cargo build --features cuda` (build.rs).

@@ -47,6 +47,13 @@ CUDA toolkit update fixes the compiler-identification incompatibility, the
 custom-command workaround should be revisited in favor of native
 `project(... CUDA)` support.
 
+**CLion note:** CLion defaults to the **Ninja** generator. A CLI
+`cmake -B cmake-build-debug` without `-G Ninja` creates **Unix Makefiles**
+and CLion will refuse to reload that directory. Fix: delete
+`cmake-build-debug` and reconfigure with Ninja, or let CLion recreate the
+profile. Do **not** use CLion “New Target” / `add_executable(... .cu)` —
+that breaks CXX-only setup; use the `cuda_kernels` target instead.
+
 ## 2. `.gitignore` fix — CMakeLists.txt was never tracked
 
 **Problem:** `.gitignore` unconditionally excluded `CMakeLists.txt`. Since it
