@@ -154,59 +154,76 @@ kernels validated end-to-end.”
 
 ### Local GPU quality gate (run on the GPU box)
 
-Prereqs: `nvcc` on `PATH` or `CUDA_NVCC=/usr/local/cuda/bin/nvcc`, working
-`nvidia-smi`, driver that can load `sm_120` PTX.
+Prereqs: `nvcc` on `PATH` (or `CUDA_NVCC=/usr/local/cuda/bin/nvcc`), working
+`nvidia-smi`, driver that can load `sm_120` PTX. ShipOfTheseus default toolkit
+is **13.3** via `/usr/local/cuda`.
+
+#### Minimal path (proven green on branch `test/cuda-rust`)
+
+```bash
+cd ~/rmems/myelin-accelerator
+
+# 1) Compile real CUDA path (nvcc → embedded PTX)
+cargo build --lib --features cuda
+# Expect: using nvcc: Build cuda_13.3...
+# Expect: compiled spiking_network / vector_similarity / satsolver → sm_120, ptx>=9.2
+
+# 2) Offline PTX assemble (ptxas needs a .ptx FILE + -o; -arch alone prints help)
+#    CMake tree (after: cmake --build cmake-build-debug --target cuda_kernels):
+ptxas -arch=sm_120 -o /tmp/sn.cubin cmake-build-debug/spiking_network.ptx
+#    Or cargo OUT_DIR PTX:
+# ptx_dir="$(ls -td target/debug/build/myelin-accelerator-*/out | head -1)"
+# ptxas -arch=sm_120 -o /tmp/sn.cubin "$ptx_dir/spiking_network_sm_120.ptx"
+# Success = no output, exit 0. Repeat for vector_similarity / satsolver if desired.
+
+# 3) Runtime GPU unit test (JIT load + key symbols)
+#    NOT cargo bench — this crate has no [[bench]] targets.
+cargo test --features cuda -- --ignored
+# Expect: test gpu::kernel::tests::test_load_kernels ... ok
+
+# 4) Optimized microbenchmarks (device + launch)
+cargo run --example benchmark --profile bench --features bench,cuda
+# Expect: [bench] GPU: NVIDIA GeForce RTX 5080 (sm_120, … MB)
+# Expect kernel rows: poisson_encode_4096, satsolver_extract_1024x256 (~5 µs mean)
+# --features bench alone is stub path — not a GPU gate.
+```
+
+#### Extended path (CI-parity + CLion)
 
 ```bash
 export CUDA_NVCC="${CUDA_NVCC:-/usr/local/cuda/bin/nvcc}"
 
-# 1) Compile + link real CUDA path (debug + release)
-cargo build --locked --features cuda
 cargo build --locked --features cuda --release
 cargo clippy --locked --features cuda -- -D warnings
-
-# 2) Unit/integration tests with cuda feature
-#    (ignored GPU-runtime tests stay ignored unless you un-ignore them)
 cargo test --locked --features cuda
 
-# 3) Runtime GPU tests that are marked #[ignore] by default
-cargo test --locked --features cuda -- --ignored --nocapture
-#    currently: gpu::kernel::tests::test_load_kernels
-#    (GpuContext::init + KernelModule::load + key entry symbols)
-
-# 4) PTX artifact sanity (same checks CI self-hosted job performs)
-#    After a cuda build, confirm OUT_DIR PTX targets sm_120 and has .entry lines.
+# Cargo PTX shape (self-hosted CI does similar checks)
 ptx_dir="$(ls -td target/debug/build/myelin-accelerator-*/out 2>/dev/null | head -n1)"
 grep -q '^\.target sm_120' "$ptx_dir/spiking_network_sm_120.ptx"
 grep -Eq '\.entry[[:space:]]+lif_step[[:space:]]*\(' "$ptx_dir/spiking_network_sm_120.ptx"
-# optional offline assemble:
-#   ptxas -arch=sm_120 -o /tmp/sn.cubin "$ptx_dir/spiking_network_sm_120.ptx"
 
-# 5) End-to-end kernel microbench (device + JIT + launch)
-cargo run --locked --example benchmark --profile bench --features bench,cuda
-#    Expect: GPU: NVIDIA ... (sm_120, … MB)
-#    Expect kernel rows: poisson_encode_*, satsolver_extract_*
-#    --features bench alone is CPU stub only — not a GPU gate.
-
-# 6) Optional Nsight (installed locally under /usr/local/cuda/bin)
-# nsys profile -o timeline cargo run --example benchmark --profile bench --features bench,cuda
-# ncu --set full -o profile cargo run --example benchmark --profile bench --features bench,cuda
-
-# 7) CLion / CMake local PTX compile (no runtime launch)
+# CLion / Ninja profile (generator must be Ninja, not Unix Makefiles)
+cmake -S . -B cmake-build-debug -G Ninja -DCUDA_NVCC="$CUDA_NVCC"
 cmake --build cmake-build-debug --target cuda_kernels
 ctest --test-dir cmake-build-debug --output-on-failure
+
+# Optional Nsight
+# nsys profile -o /tmp/myelin-timeline cargo run --example benchmark --profile bench --features bench,cuda
+# ncu --set full -o /tmp/myelin-ncu cargo run --example benchmark --profile bench --features bench,cuda
 ```
 
 ### What “good” looks like
 
-| Layer | Command / check | Proves |
-|-------|-----------------|--------|
-| Feature compile | `cargo build --features cuda` | `cust` + kernels + nvtx link |
-| Default tests | `cargo test --features cuda` | bitpacking + cuda-feature units (no device required for most) |
-| Runtime JIT | `cargo test --features cuda -- --ignored` | context init + PTX module load on device |
-| PTX shape | `.target sm_120` + `.entry` symbols | build.rs / nvcc output is real, not stub |
-| Launch + timing | `benchmark --features bench,cuda` | kernels actually run on the GPU |
-| CMake PTX | `cuda_kernels` / CTest | CLion path matches `build.rs` flags |
+| Layer | Command | Proves |
+|-------|---------|--------|
+| Feature compile | `cargo build --lib --features cuda` | `nvcc` + `cust` + nvtx + PTX embed |
+| Offline ISA | `ptxas -arch=sm_120 -o /tmp/x.cubin <file.ptx>` | PTX is valid for sm_120 |
+| Runtime JIT | `cargo test --features cuda -- --ignored` | context + `KernelModule::load` on GPU |
+| Launch + timing | `cargo run --example benchmark --profile bench --features bench,cuda` | kernels run (~5 µs class on 5080) |
+| CMake PTX | `cmake --build … --target cuda_kernels` | CLion path matches `build.rs` flags |
+
+**Do not use** `cargo bench` for this crate’s GPU gate — it has no `#[bench]` /
+`[[bench]]` harness and will leave `#[ignore]` tests as ignored.
 
 ### Cloud CI vs local
 
@@ -255,7 +272,8 @@ Recorded while validating the local GPU quality gate (updated after toolkit
 | Prior toolkit still on disk | `cuda-13.1`, `cuda-13.2` (not default) |
 | Nsight Systems | `nsys` **2026.1.3** (from active toolkit PATH) |
 | Nsight Compute | `ncu` **2026.2.1** |
-| Optimized bench (`--profile bench --features bench,cuda`) | GPU kernels run (~5 µs mean poisson_encode / satsolver_extract) on 13.2 and re-checked on 13.3 |
+| Optimized bench (`--profile bench --features bench,cuda`) | GPU kernels ~5.0–5.1 µs mean (`poisson_encode_4096`, `satsolver_extract_1024x256`) on 13.3 |
+| Minimal gate (build + ptxas + ignored test + bench) | **Pass** on `test/cuda-rust` with toolkit 13.3.1 |
 
 **Compatibility:** 13.2 remains a supported build host if someone pins an older
 tree with `CUDA_NVCC`. Local default is **13.3**. Do not require 13.3-only in
