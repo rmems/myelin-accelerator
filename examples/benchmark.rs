@@ -276,15 +276,34 @@ fn collect_gpu_info() -> Option<GpuInfo> {
         .get_attribute(DeviceAttribute::ComputeCapabilityMinor)
         .ok()?;
 
-    // CudaApiVersion::get reports the driver-supported CUDA version.
-    let version = CudaApiVersion::get()
+    // Driver-supported CUDA API version (cuDriverGetVersion via cust).
+    let driver_cuda_api = CudaApiVersion::get()
         .map(|v| format!("{}.{}", v.major(), v.minor()))
         .unwrap_or_else(|_| "unknown".to_string());
+    // Toolkit/nvcc version when available (distinct from driver-supported API).
+    let cuda_toolkit =
+        std::process::Command::new(std::env::var_os("CUDA_NVCC").unwrap_or_else(|| "nvcc".into()))
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| {
+                let s = String::from_utf8_lossy(&o.stdout);
+                s.lines().find_map(|line| {
+                    // e.g. "Cuda compilation tools, release 13.3, V13.3.73"
+                    line.split("release ")
+                        .nth(1)
+                        .and_then(|rest| rest.split(',').next())
+                        .map(str::trim)
+                        .map(str::to_string)
+                })
+            })
+            .unwrap_or_else(|| "unknown".to_string());
 
     Some(GpuInfo {
         device_name,
-        driver_version: version.clone(),
-        cuda_version: version,
+        // Field name is historical; stores driver-supported CUDA API, not KMD string.
+        driver_version: driver_cuda_api,
+        cuda_version: cuda_toolkit,
         sm_arch: format!("sm_{major}{minor}"),
         vram_total_mb: total_bytes / (1024 * 1024),
     })

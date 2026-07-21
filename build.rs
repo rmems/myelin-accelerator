@@ -47,10 +47,11 @@ fn main() {
 
     let nvcc = find_nvcc();
     let arch = env::var("MYELIN_CUDA_ARCH").unwrap_or_else(|_| "sm_120".to_string());
-    // Only rewrite .version when MYELIN_PTX_VERSION is set, or when we need a
-    // known floor for sm_120. Prefer leaving nvcc's .version untouched when
-    // the env var is unset after compile (see patch below).
-    let ptx_version_override = env::var("MYELIN_PTX_VERSION").ok();
+    // Treat empty MYELIN_PTX_VERSION as unset (Some("") would write ".version ").
+    let ptx_version_override = env::var("MYELIN_PTX_VERSION")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let is_blackwell = arch.starts_with("sm_12") || arch.starts_with("compute_12");
 
     let Some(nvcc_path) = nvcc else {
         panic!(
@@ -67,17 +68,23 @@ fn main() {
         let source = cu_dir.join(cu_name);
         let output = out_dir.join(ptx_name);
         compile_to_ptx(&nvcc_path, &cu_dir, &source, &output, &arch);
-        // sm_120 + PTX 8.5 is invalid. If the caller forced an old version via
-        // env, still apply it (they may target older arches); otherwise ensure
-        // at least DEFAULT_REAL_PTX_VERSION when the file targets sm_120, or
-        // leave nvcc's header alone for other arches.
+        // sm_120 + PTX < 9.0 is invalid. Explicit overrides are applied for
+        // non-Blackwell arches; on Blackwell, clamp any override below the floor.
         if let Some(ref ver) = ptx_version_override {
-            patch_ptx_version_any(&output, ver);
+            let effective = if is_blackwell && ptx_version_less(ver, DEFAULT_REAL_PTX_VERSION) {
+                println!(
+                    "cargo:warning=MYELIN_PTX_VERSION={ver} is below {DEFAULT_REAL_PTX_VERSION} for {arch}; clamping"
+                );
+                DEFAULT_REAL_PTX_VERSION
+            } else {
+                ver.as_str()
+            };
+            patch_ptx_version_any(&output, effective);
             println!(
-                "cargo:warning=compiled {cu_name} -> {ptx_name} (arch={arch}, ptx={ver} [override])"
+                "cargo:warning=compiled {cu_name} -> {ptx_name} (arch={arch}, ptx={effective} [override])"
             );
-        } else if arch.starts_with("sm_12") || arch.starts_with("compute_12") {
-            // Blackwell: floor at 9.2 if nvcc emitted something lower (defensive).
+        } else if is_blackwell {
+            // Leave nvcc's header when already high enough; raise only if lower.
             ensure_min_ptx_version(&output, DEFAULT_REAL_PTX_VERSION);
             println!(
                 "cargo:warning=compiled {cu_name} -> {ptx_name} (arch={arch}, ptx>={DEFAULT_REAL_PTX_VERSION})"

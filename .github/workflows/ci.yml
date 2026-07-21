@@ -81,9 +81,9 @@ jobs:
     timeout-minutes: 30
     env:
       MYELIN_CUDA_ARCH: sm_120
-      # sm_120 requires PTX ISA ≥ 9.0; nvcc 13.x emits 9.2. Do not use 8.5
-      # (InvalidPtx at JIT: "PTX .version 8.5 does not support .target sm_120").
-      MYELIN_PTX_VERSION: "9.2"
+      # Do not set MYELIN_PTX_VERSION here: build.rs floors sm_12* to ≥ 9.2 and
+      # otherwise leaves nvcc's .version alone. Forcing an exact rewrite can
+      # downgrade a newer nvcc header and break JIT/ptxas.
     steps:
       - name: Confirm self-hosted runner
         run: |

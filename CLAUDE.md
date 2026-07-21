@@ -84,10 +84,10 @@ Do not create a new build directory — reuse the existing
   `--expt-relaxed-constexpr`, `-Xcompiler -fno-builtin`) — they exist to
   work around GCC/Clang host-compiler incompatibilities with `nvcc`, not out
   of preference.
-- `nvtx` (`range_push!`/`range_pop!`) is a mandatory dependency (used only
-  under the `cuda` feature) for profiling with Nsight Systems/Compute. It
-  has no Cargo features to enable — its macros are always available from
-  the crate root.
+- `nvtx` (`range_push!`/`range_pop!`) is an **optional** dependency enabled
+  only via the `cuda` feature (`cuda = ["dep:cust", "dep:nvtx"]`) so the
+  CPU-safe path does not compile/link NVTX. Macros have no separate crate
+  feature flag.
 - Never weaken or `#[ignore]` a failing test to make CI green; GPU-only
   tests are already marked `#[ignore] // requires GPU + driver ≥ 570` and
   are skipped by default — that pattern should be followed for any new

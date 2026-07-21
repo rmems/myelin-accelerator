@@ -48,12 +48,19 @@ foreach(cu_src ${CU_SOURCES})
     list(APPEND PTX_OUTPUTS ${ptx_out})
 endforeach()
 
-# SOURCES= attaches .cu/.cuh to the target for CLion/IDE indexing so files
-# are not reported as "does not belong to any project target". Still not a
-# native CUDA language target — build produces PTX only.
-add_custom_target(cuda_kernels ALL
-        DEPENDS ${PTX_OUTPUTS}
-        SOURCES ${CU_SOURCES} ${CU_HEADERS})
+# SOURCES= attaches .cu/.cuh for CLion/IDE indexing. Do not mark ALL when
+# nvcc is missing — default `cmake --build` must stay usable on CPU-only hosts.
+# Still not a native CUDA language target — build produces PTX only.
+if(EXISTS "${CUDA_NVCC}")
+    add_custom_target(cuda_kernels ALL
+            DEPENDS ${PTX_OUTPUTS}
+            SOURCES ${CU_SOURCES} ${CU_HEADERS})
+else()
+    add_custom_target(cuda_kernels
+            DEPENDS ${PTX_OUTPUTS}
+            SOURCES ${CU_SOURCES} ${CU_HEADERS})
+    message(STATUS "nvcc not found at ${CUDA_NVCC}; cuda_kernels is not part of ALL")
+endif()
 
 # ── Testing ──────────────────────────────────────────────────────────
 # CPU-safe CTest entries (no GPU required). CUDA feature build + self-hosted
