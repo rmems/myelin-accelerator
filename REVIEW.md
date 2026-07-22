@@ -153,6 +153,52 @@ So: **CPU checks always run in cloud CI; full CUDA runtime proof is local
 (or optional self-hosted).** Do not treat a green cloud-only PR as “GPU
 kernels validated end-to-end.”
 
+### Two paths — do not mix them up
+
+| Path | When CUDA is used | Typical commands |
+|------|-------------------|------------------|
+| **A. CPU-safe** | **Never** — stub / no `nvcc` | `cargo test --locked`, `cargo build --no-default-features`, `cargo clippy --no-default-features`, `cargo build --features bench --example benchmark` |
+| **B. GPU / CUDA** | Only with **`--features cuda`** (or `bench,cuda`) | See minimal/extended GPU sections below |
+
+- Default Cargo features are **empty**. Omitting `cuda` is intentional for CI and sandboxes.
+- Seeing `cuda feature not enabled; wrote stub PTX files` after path A is **success**, not a bug.
+- `--features bench` alone still uses the stub GPU API; GPU kernel rows need **`bench,cuda`**.
+
+### CPU-safe path (matches CTest cargo_* tests; no GPU)
+
+These are what CLion/`ctest` run for lint-style checks. They **must not** pull in CUDA:
+
+```bash
+cd ~/rmems/myelin-accelerator
+
+cargo test --locked
+cargo build --locked --no-default-features
+cargo clippy --locked --no-default-features -- -D warnings
+cargo build --locked --features bench --example benchmark
+# Expect: stub PTX warning; no "using nvcc: …" lines
+```
+
+### CMake target `cuda_kernels` (not a shell command)
+
+The PTX target name is **`cuda_kernels`** (one word, underscore). It is **not**
+typed at the shell as `cuda kernel build`.
+
+```bash
+# Configure once (Ninja; not Unix Makefiles — CLion default is Ninja)
+cmake -S . -B cmake-build-debug -G Ninja \
+  -DCUDA_NVCC="${CUDA_NVCC:-/usr/local/cuda/bin/nvcc}"
+
+# Build PTX from cu/*.cu (includes common.cuh)
+cmake --build cmake-build-debug --target cuda_kernels
+# equivalent:  (cd cmake-build-debug && ninja cuda_kernels)
+
+# Full CTest: cargo_* always; cuda_kernel_build only if nvcc exists
+ctest --test-dir cmake-build-debug --output-on-failure
+```
+
+Wrong: `cuda kernel build` → `bash: cuda: command not found`  
+Right: `cmake --build cmake-build-debug --target cuda_kernels`
+
 ### Local GPU quality gate (run on the GPU box)
 
 Prereqs: `nvcc` on `PATH` (or `CUDA_NVCC=/usr/local/cuda/bin/nvcc`), working
@@ -170,7 +216,7 @@ cargo build --lib --features cuda
 # Expect: compiled spiking_network / vector_similarity / satsolver → sm_120, ptx>=9.2
 
 # 2) Offline PTX assemble (ptxas needs a .ptx FILE + -o; -arch alone prints help)
-#    CMake tree (after: cmake --build cmake-build-debug --target cuda_kernels):
+#    After: cmake --build cmake-build-debug --target cuda_kernels
 ptxas -arch=sm_120 -o /tmp/sn.cubin cmake-build-debug/spiking_network.ptx
 #    Or cargo OUT_DIR PTX:
 # ptx_dir="$(ls -td target/debug/build/myelin-accelerator-*/out | head -1)"
@@ -189,7 +235,7 @@ cargo run --example benchmark --profile bench --features bench,cuda
 # --features bench alone is stub path — not a GPU gate.
 ```
 
-#### Extended path (CI-parity + CLion)
+#### Extended path (CI-parity + CLion, with CUDA)
 
 ```bash
 export CUDA_NVCC="${CUDA_NVCC:-/usr/local/cuda/bin/nvcc}"
@@ -203,7 +249,6 @@ ptx_dir="$(ls -td target/debug/build/myelin-accelerator-*/out 2>/dev/null | head
 grep -q '^\.target sm_120' "$ptx_dir/spiking_network_sm_120.ptx"
 grep -Eq '\.entry[[:space:]]+lif_step[[:space:]]*\(' "$ptx_dir/spiking_network_sm_120.ptx"
 
-# CLion / Ninja profile (generator must be Ninja, not Unix Makefiles)
 cmake -S . -B cmake-build-debug -G Ninja -DCUDA_NVCC="$CUDA_NVCC"
 cmake --build cmake-build-debug --target cuda_kernels
 ctest --test-dir cmake-build-debug --output-on-failure
@@ -217,11 +262,13 @@ ctest --test-dir cmake-build-debug --output-on-failure
 
 | Layer | Command | Proves |
 |-------|---------|--------|
+| CPU-safe | `cargo test` / `build --no-default-features` / `clippy --no-default-features` | Stub path; **no** `nvcc` |
+| Bench example (CPU) | `cargo build --features bench --example benchmark` | Example compiles; still **no** GPU kernels |
 | Feature compile | `cargo build --lib --features cuda` | `nvcc` + `cust` + nvtx + PTX embed |
 | Offline ISA | `ptxas -arch=sm_120 -o /tmp/x.cubin <file.ptx>` | PTX is valid for sm_120 |
 | Runtime JIT | `cargo test --features cuda -- --ignored` | context + `KernelModule::load` on GPU |
 | Launch + timing | `cargo run --example benchmark --profile bench --features bench,cuda` | kernels run (~5 µs class on 5080) |
-| CMake PTX | `cmake --build … --target cuda_kernels` | CLion path matches `build.rs` flags (CTest `cuda_kernel_build` is registered only when `nvcc` exists) |
+| CMake PTX | `cmake --build … --target cuda_kernels` | CLion path matches `build.rs` (CTest name `cuda_kernel_build` only if `nvcc` exists) |
 
 **Do not use** `cargo bench` for this crate’s GPU gate — it has no `#[bench]` /
 `[[bench]]` harness and will leave `#[ignore]` tests as ignored.
