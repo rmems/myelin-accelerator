@@ -54,3 +54,7 @@ actions-runner/
 .kilo/
 .mimocode/
 .cline/
+
+# OpenCode swarm runtime and worktree lanes
+.swarm/
+.swarm-worktrees/

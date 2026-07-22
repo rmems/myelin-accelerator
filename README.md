@@ -2,7 +2,9 @@
 
 Blackwell-first CUDA kernels for neuromorphic inference, SAT search, and routing-heavy GPU workloads on RTX 5080-class hardware.
 
-This repo is the low-level compute layer behind the stack: CUDA PTX modules, Rust bindings, and the launch paths that keep the GPU busy instead of serializing work through one thread at a time.
+This repo is the **low-level compute layer** behind the stack: CUDA PTX modules, Rust bindings, and the launch paths that keep the GPU busy instead of serializing work through one thread at a time.
+
+**Backend scope and public API:** see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — what belongs here vs higher-level experiment/orchestration repos.
 
 ## Current State
 
@@ -11,6 +13,32 @@ This repo is the low-level compute layer behind the stack: CUDA PTX modules, Rus
 - `SAT path`: `atomicMin` is gone from the hot reduction path.
 - `Routing path`: `cosine_similarity_top_k` now uses warp-participating top-k reduction instead of a single-thread selection tail.
 - `Rust FFI`: kernel symbols are loaded through `src/gpu/kernel.rs`; the codebase stays ABI-consistent with the CUDA side.
+- Host **binary/ternary bitpacking** lives in `src/bitpacking.rs` (device ternary GEMV/GEMM is tracked separately).
+
+## Module map
+
+| Path | Role | Public? |
+|------|------|---------|
+| `src/lib.rs` | Crate root re-exports | yes |
+| `src/bitpacking.rs` | Host binary/ternary pack/unpack | yes (`bitpacking`) |
+| `src/gpu/` | CUDA context, PTX load, buffers, launches | via re-exports when `cuda` |
+| `src/gpu_stub.rs` | CPU-safe stand-ins without toolkit | used when `cuda` off |
+| `cu/*.cu` | Device kernels (spiking, similarity, SAT) | via PTX + wrappers |
+| `examples/benchmark.rs` | Latency / GPU info harness | feature `bench` (+ `cuda` for GPU) |
+| `build.rs` / `CMakeLists.txt` | `nvcc -ptx` quality path | build-only |
+| `docs/ARCHITECTURE.md` | Ownership + API boundary | docs |
+
+### Features
+
+| Feature | Meaning |
+|---------|---------|
+| *(default)* | Stub GPU API; no `nvcc` |
+| `cuda` | Real GPU path (`cust`, `nvtx`) |
+| `bench` | Benchmark example serde deps |
+
+### Public symbols (crate root)
+
+`GpuAccelerator`, `GpuContext`, `GpuBuffer`, `KernelModule`, `GpuError` — plus the `bitpacking` module. Prefer these over deep `gpu::…` paths. Full list of loaded device symbols and what stays out of this repo is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## What Changed
 
@@ -23,17 +51,37 @@ This repo is the low-level compute layer behind the stack: CUDA PTX modules, Rus
 - Better SM occupancy on Blackwell.
 - No global atomic serialization in the SAT best-score path.
 - No single-thread MoE routing bottleneck.
-- Lower noise in the repo from generated files that do not belong in source control.
+- Clear boundary so consumers (`corinth-canal`, SNN stacks, quant prototypes) depend on one accelerator crate instead of copying kernels.
 
 ## Provenance
 
-Recent kernel work in this branch was authored with GPT-5.4 (`xhigh`) assistance.
+Recent kernel work in this branch was authored with GPT-5.4 (`xhigh`) assistance. Architecture boundary docs: Grok Build agent: Grok 4.5.
 
 ## Usage
 
 ```toml
 [dependencies]
 myelin-accelerator = "0.1.0"
+# Optional GPU:
+# myelin-accelerator = { version = "0.1.0", features = ["cuda"] }
+```
+
+```rust
+use myelin_accelerator::{GpuAccelerator, bitpacking};
+
+let gpu = GpuAccelerator::new();
+if gpu.is_ready() {
+    // launch wrappers when a device is present
+}
+let packed = bitpacking::pack_ternary(&[-1, 0, 1, 1]);
+let _ = packed;
+```
+
+CPU-safe checks:
+
+```bash
+cargo test --locked
+cargo build --locked --no-default-features
 ```
 
 ## License
