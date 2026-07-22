@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn accelerator_default() {
-        let acc = GpuAccelerator::default();
+        let acc = GpuAccelerator;
         assert!(!acc.is_ready());
     }
 

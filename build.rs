@@ -68,7 +68,7 @@ fn main() {
         let source = cu_dir.join(cu_name);
         let output = out_dir.join(ptx_name);
         compile_to_ptx(&nvcc_path, &cu_dir, &source, &output, &arch);
-        // sm_120 + PTX < 9.0 is invalid. Explicit overrides are applied for
+        // sm_120 + PTX < 9.2 is invalid. Explicit overrides are applied for
         // non-Blackwell arches; on Blackwell, clamp any override below the floor.
         if let Some(ref ver) = ptx_version_override {
             let effective = if is_blackwell && ptx_version_less(ver, DEFAULT_REAL_PTX_VERSION) {

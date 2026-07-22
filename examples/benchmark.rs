@@ -281,23 +281,39 @@ fn collect_gpu_info() -> Option<GpuInfo> {
         .map(|v| format!("{}.{}", v.major(), v.minor()))
         .unwrap_or_else(|_| "unknown".to_string());
     // Toolkit/nvcc version when available (distinct from driver-supported API).
-    let cuda_toolkit =
-        std::process::Command::new(std::env::var_os("CUDA_NVCC").unwrap_or_else(|| "nvcc".into()))
-            .arg("--version")
-            .output()
-            .ok()
-            .and_then(|o| {
-                let s = String::from_utf8_lossy(&o.stdout);
-                s.lines().find_map(|line| {
-                    // e.g. "Cuda compilation tools, release 13.3, V13.3.73"
-                    line.split("release ")
-                        .nth(1)
-                        .and_then(|rest| rest.split(',').next())
-                        .map(str::trim)
-                        .map(str::to_string)
-                })
+    // Mirror build.rs resolution: CUDA_NVCC, then CUDA_HOME/CUDA_PATH/bin/nvcc,
+    // then the nvcc on PATH.
+    let nvcc_binary = std::env::var("CUDA_NVCC")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            for var in ["CUDA_HOME", "CUDA_PATH"] {
+                if let Ok(root) = std::env::var(var) {
+                    if !root.trim().is_empty() {
+                        return Some(std::path::PathBuf::from(root).join("bin").join("nvcc"));
+                    }
+                }
+            }
+            None
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from("nvcc"));
+    let cuda_toolkit = std::process::Command::new(nvcc_binary)
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| {
+            let s = String::from_utf8_lossy(&o.stdout);
+            s.lines().find_map(|line| {
+                // e.g. "Cuda compilation tools, release 13.3, V13.3.73"
+                line.split("release ")
+                    .nth(1)
+                    .and_then(|rest| rest.split(',').next())
+                    .map(str::trim)
+                    .map(str::to_string)
             })
-            .unwrap_or_else(|| "unknown".to_string());
+        })
+        .unwrap_or_else(|| "unknown".to_string());
 
     Some(GpuInfo {
         device_name,
