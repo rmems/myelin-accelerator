@@ -118,11 +118,15 @@ Re-exported from `src/lib.rs` (names available with or without `cuda` via stub):
 | `GpuContext` | Context init / presence |
 | `GpuBuffer` | Device buffer helper |
 | `KernelModule` | Loaded PTX modules + `get_function` |
-| `GpuError` / `GpuResult` | Error types |
+| `GpuError` | Error type re-exported at the crate root |
 | `bitpacking` module | Host packing APIs (`pack_ternary`, `pack_binary`, …) |
 
-Prefer `use myelin_accelerator::{GpuAccelerator, …}` over deep paths into
-`myelin_accelerator::gpu::…` for application code.
+`GpuResult<T>` (`type` alias for `Result<T, GpuError>`) is **not** re-exported
+from the crate root today. Use `Result<_, myelin_accelerator::GpuError>` at the
+boundary, or `myelin_accelerator::gpu::GpuResult` if you want the alias (via the
+`gpu` / stub module path). Prefer
+`use myelin_accelerator::{GpuAccelerator, GpuError, …}` over deep paths into
+internal files.
 
 ### High-level launches today (`GpuAccelerator`)
 
