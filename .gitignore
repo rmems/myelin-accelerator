@@ -3,7 +3,6 @@ target/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
-CMakeLists.txt
 cmake_install.cmake
 Makefile
 libmyelin_accelerator.a
@@ -13,9 +12,27 @@ test.ptx
 .idea/
 .clangd
 .junie/
+.vscode/
+.ai/
+.cursor/
+.zed/
 
 # Generated PTX and intermediate files
 *.ptx
+*.cubin
+
+# Nsight Systems / Nsight Compute local profiling outputs
+*.nsys-rep
+*.qdrep
+*.ncu-rep
+*.sqlite
+
+# clangd / IDE compile database (local)
+compile_commands.json
+
+# Generated benchmark result artifacts
+benchmark_results.csv
+benchmark_results.json
 
 # Cargo / Rust scratch files
 *.rmeta
@@ -32,5 +49,8 @@ myelin-accelerator/
 actions-runner/
 **/actions-runner/
 
-# Kilo CLI local session state
+# AI agents
+.opencode/
 .kilo/
+.mimocode/
+.cline/

@@ -81,7 +81,9 @@ jobs:
     timeout-minutes: 30
     env:
       MYELIN_CUDA_ARCH: sm_120
-      MYELIN_PTX_VERSION: "8.5"
+      # Do not set MYELIN_PTX_VERSION here: build.rs floors sm_12* to ≥ 9.2 and
+      # otherwise leaves nvcc's .version alone. Forcing an exact rewrite can
+      # downgrade a newer nvcc header and break JIT/ptxas.
     steps:
       - name: Confirm self-hosted runner
         run: |

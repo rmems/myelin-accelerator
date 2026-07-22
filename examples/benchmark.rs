@@ -256,14 +256,73 @@ fn run_benchmark<F: FnMut()>(
 
 // ── GPU info collection ─────────────────────────────────────────────────────
 
+/// Probe device 0 via the CUDA driver API when built with `cuda`.
+///
+/// `cust::init` is idempotent, so calling this before `GpuAccelerator::new`
+/// in the kernel benches does not conflict with later context creation.
 #[cfg(feature = "cuda")]
 fn collect_gpu_info() -> Option<GpuInfo> {
-    // TODO: Use cust::device::Device to query actual hardware properties.
-    // Return None until real device queries are implemented — avoids
-    // emitting misleading "unknown" fields in benchmark reports and
-    // avoids double CUDA context initialization (GpuAccelerator::new
-    // already initializes the context).
-    None
+    use cust::device::{Device, DeviceAttribute};
+    use cust::{CudaApiVersion, CudaFlags};
+
+    cust::init(CudaFlags::empty()).ok()?;
+    let device = Device::get_device(0).ok()?;
+    let device_name = device.name().ok()?;
+    let total_bytes = device.total_memory().ok()? as u64;
+    let major = device
+        .get_attribute(DeviceAttribute::ComputeCapabilityMajor)
+        .ok()?;
+    let minor = device
+        .get_attribute(DeviceAttribute::ComputeCapabilityMinor)
+        .ok()?;
+
+    // Driver-supported CUDA API version (cuDriverGetVersion via cust).
+    let driver_cuda_api = CudaApiVersion::get()
+        .map(|v| format!("{}.{}", v.major(), v.minor()))
+        .unwrap_or_else(|_| "unknown".to_string());
+    // Toolkit/nvcc version when available (distinct from driver-supported API).
+    // Mirror build.rs resolution: CUDA_NVCC, then CUDA_HOME/CUDA_PATH/bin/nvcc,
+    // then the nvcc on PATH.
+    let nvcc_binary = std::env::var("CUDA_NVCC")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            for var in ["CUDA_HOME", "CUDA_PATH"] {
+                if let Ok(root) = std::env::var(var) {
+                    if !root.trim().is_empty() {
+                        return Some(std::path::PathBuf::from(root).join("bin").join("nvcc"));
+                    }
+                }
+            }
+            None
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from("nvcc"));
+    let cuda_toolkit = std::process::Command::new(nvcc_binary)
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| {
+            let s = String::from_utf8_lossy(&o.stdout);
+            s.lines().find_map(|line| {
+                // e.g. "Cuda compilation tools, release 13.3, V13.3.73"
+                line.split("release ")
+                    .nth(1)
+                    .and_then(|rest| rest.split(',').next())
+                    .map(str::trim)
+                    .map(str::to_string)
+            })
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    Some(GpuInfo {
+        device_name,
+        // Field name is historical; stores driver-supported CUDA API, not KMD string.
+        driver_version: driver_cuda_api,
+        cuda_version: cuda_toolkit,
+        sm_arch: format!("sm_{major}{minor}"),
+        vram_total_mb: total_bytes / (1024 * 1024),
+    })
 }
 
 #[cfg(not(feature = "cuda"))]
@@ -565,9 +624,19 @@ fn main() {
 
     let gpu_info = collect_gpu_info();
     if let Some(ref info) = gpu_info {
-        println!("[bench] GPU: {} ({})", info.device_name, info.sm_arch);
+        println!(
+            "[bench] GPU: {} ({}, {} MB)",
+            info.device_name, info.sm_arch, info.vram_total_mb
+        );
+    } else if cfg!(feature = "cuda") {
+        println!("[bench] No CUDA device available (CPU-only benchmarks)");
     } else {
-        println!("[bench] No GPU detected (CPU-only benchmarks)");
+        // Without `cuda`, gpu_stub is compiled — is_available() is always false.
+        // This is a feature gate, not a failed hardware probe.
+        println!(
+            "[bench] Built without `cuda` feature (stub path); \
+             use --features bench,cuda for GPU benchmarks"
+        );
     }
 
     let mut results = Vec::new();

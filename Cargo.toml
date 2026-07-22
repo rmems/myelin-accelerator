@@ -13,7 +13,8 @@ path = "src/lib.rs"
 
 [features]
 default = []
-cuda = ["dep:cust"]
+# nvtx is only used from src/gpu/kernel.rs under the cuda feature.
+cuda = ["dep:cust", "dep:nvtx"]
 bench = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
@@ -22,6 +23,7 @@ anyhow    = { version = "1", features = ["backtrace"] }
 tracing   = "0.1"
 serde     = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
+nvtx      = { version = "1", optional = true }
 
 [dev-dependencies]
 proptest = "1"

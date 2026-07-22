@@ -7,8 +7,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const PTX_STUB_VERSION: &str = "8.5";
+// Stub PTX is only embedded when the `cuda` feature is off. It is never
+// JIT-loaded on a real GPU, so an older ISA + sm_80 target is fine.
 const PTX_STUB: &str = ".version 8.5\n.target sm_80\n.address_size 64\n";
+
+// sm_120 (Blackwell) requires PTX ISA ≥ 9.0. nvcc 13.x emits .version 9.2.
+// Never default to the stub's 8.5 — that yields InvalidPtx at JIT time.
+const DEFAULT_REAL_PTX_VERSION: &str = "9.2";
 
 const KERNELS: &[(&str, &str)] = &[
     ("spiking_network.cu", "spiking_network_sm_120.ptx"),
@@ -42,8 +47,11 @@ fn main() {
 
     let nvcc = find_nvcc();
     let arch = env::var("MYELIN_CUDA_ARCH").unwrap_or_else(|_| "sm_120".to_string());
-    let ptx_version =
-        env::var("MYELIN_PTX_VERSION").unwrap_or_else(|_| PTX_STUB_VERSION.to_string());
+    // Treat empty MYELIN_PTX_VERSION as unset (Some("") would write ".version ").
+    let ptx_version_override = env::var("MYELIN_PTX_VERSION")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let is_blackwell = arch.starts_with("sm_12") || arch.starts_with("compute_12");
 
     let Some(nvcc_path) = nvcc else {
         panic!(
@@ -60,8 +68,32 @@ fn main() {
         let source = cu_dir.join(cu_name);
         let output = out_dir.join(ptx_name);
         compile_to_ptx(&nvcc_path, &cu_dir, &source, &output, &arch);
-        patch_ptx_version_any(&output, &ptx_version);
-        println!("cargo:warning=compiled {cu_name} -> {ptx_name} (arch={arch}, ptx={ptx_version})");
+        // sm_120 + PTX < 9.2 is invalid. Explicit overrides are applied for
+        // non-Blackwell arches; on Blackwell, clamp any override below the floor.
+        if let Some(ref ver) = ptx_version_override {
+            let effective = if is_blackwell && ptx_version_less(ver, DEFAULT_REAL_PTX_VERSION) {
+                println!(
+                    "cargo:warning=MYELIN_PTX_VERSION={ver} is below {DEFAULT_REAL_PTX_VERSION} for {arch}; clamping"
+                );
+                DEFAULT_REAL_PTX_VERSION
+            } else {
+                ver.as_str()
+            };
+            patch_ptx_version_any(&output, effective);
+            println!(
+                "cargo:warning=compiled {cu_name} -> {ptx_name} (arch={arch}, ptx={effective} [override])"
+            );
+        } else if is_blackwell {
+            // Leave nvcc's header when already high enough; raise only if lower.
+            ensure_min_ptx_version(&output, DEFAULT_REAL_PTX_VERSION);
+            println!(
+                "cargo:warning=compiled {cu_name} -> {ptx_name} (arch={arch}, ptx>={DEFAULT_REAL_PTX_VERSION})"
+            );
+        } else {
+            println!(
+                "cargo:warning=compiled {cu_name} -> {ptx_name} (arch={arch}, ptx=nvcc-default)"
+            );
+        }
     }
 }
 
@@ -216,4 +248,31 @@ fn patch_ptx_version_any(path: &Path, new_ver: &str) {
         fs::write(path, output)
             .unwrap_or_else(|e| panic!("Failed to patch PTX version in {}: {e}", path.display()));
     }
+}
+
+/// Raise `.version` only when the current value is lower than `min_ver`.
+/// Leaves equal/higher versions (e.g. nvcc's native 9.2) unchanged.
+fn ensure_min_ptx_version(path: &Path, min_ver: &str) {
+    let Ok(text) = fs::read_to_string(path) else {
+        return;
+    };
+    let Some(current) = text.lines().find_map(|line| {
+        let t = line.trim_start();
+        t.strip_prefix(".version ").map(str::trim)
+    }) else {
+        return;
+    };
+    if ptx_version_less(current, min_ver) {
+        patch_ptx_version_any(path, min_ver);
+    }
+}
+
+fn ptx_version_less(a: &str, b: &str) -> bool {
+    let parse = |s: &str| -> (u32, u32) {
+        let mut parts = s.split('.');
+        let major = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+        let minor = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+        (major, minor)
+    };
+    parse(a) < parse(b)
 }
