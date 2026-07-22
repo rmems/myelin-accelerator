@@ -118,10 +118,16 @@ add_test(NAME cargo_build_bench_example
         COMMAND cargo build --locked --features bench --example benchmark
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
-# CUDA PTX compile check
-add_test(NAME cuda_kernel_build
-        COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target cuda_kernels
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+# CUDA PTX compile check — only when nvcc is present. Otherwise a full
+# `ctest` run would still invoke cuda_kernels and fail on CPU-only hosts
+# that intentionally leave CUDA_NVCC missing (Codex: skip CUDA CTest).
+if(EXISTS "${CUDA_NVCC}")
+    add_test(NAME cuda_kernel_build
+            COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target cuda_kernels
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+else()
+    message(STATUS "Skipping CTest cuda_kernel_build (nvcc not found at ${CUDA_NVCC})")
+endif()
 
 # Do not add_executable() on .cu files here. CLion "New Target" / native CUDA
 # language is intentionally avoided (GCC 16 + nvcc host front-end). Quality

@@ -221,7 +221,7 @@ ctest --test-dir cmake-build-debug --output-on-failure
 | Offline ISA | `ptxas -arch=sm_120 -o /tmp/x.cubin <file.ptx>` | PTX is valid for sm_120 |
 | Runtime JIT | `cargo test --features cuda -- --ignored` | context + `KernelModule::load` on GPU |
 | Launch + timing | `cargo run --example benchmark --profile bench --features bench,cuda` | kernels run (~5 µs class on 5080) |
-| CMake PTX | `cmake --build … --target cuda_kernels` | CLion path matches `build.rs` flags |
+| CMake PTX | `cmake --build … --target cuda_kernels` | CLion path matches `build.rs` flags (CTest `cuda_kernel_build` is registered only when `nvcc` exists) |
 
 **Do not use** `cargo bench` for this crate’s GPU gate — it has no `#[bench]` /
 `[[bench]]` harness and will leave `#[ignore]` tests as ignored.
