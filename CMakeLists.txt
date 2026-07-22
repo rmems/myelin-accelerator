@@ -51,13 +51,23 @@ endforeach()
 # SOURCES= attaches .cu/.cuh for CLion/IDE indexing. Do not mark ALL when
 # nvcc is missing — default `cmake --build` must stay usable on CPU-only hosts.
 # Still not a native CUDA language target — build produces PTX only.
-# Check both that the path exists and is executable (robust nvcc detection).
-if(EXISTS "${CUDA_NVCC}" AND IS_EXECUTABLE "${CUDA_NVCC}")
+#
+# Do not use if(IS_EXECUTABLE) here: that operator needs CMake ≥ 3.29, but
+# this project requires only 3.20. EXISTS + NOT IS_DIRECTORY is portable.
+set(MYELIN_HAS_NVCC FALSE)
+if(EXISTS "${CUDA_NVCC}" AND NOT IS_DIRECTORY "${CUDA_NVCC}")
+    set(MYELIN_HAS_NVCC TRUE)
+endif()
+
+if(MYELIN_HAS_NVCC)
     add_custom_target(cuda_kernels ALL
             DEPENDS ${PTX_OUTPUTS}
             SOURCES ${CU_SOURCES} ${CU_HEADERS})
 else()
-    message(STATUS "nvcc not found or not executable at ${CUDA_NVCC}; cuda_kernels target skipped")
+    # Indexing-only target (no PTX deps) so CLion still sees .cu/.cuh files.
+    add_custom_target(cuda_kernels
+            SOURCES ${CU_SOURCES} ${CU_HEADERS})
+    message(STATUS "nvcc not found at ${CUDA_NVCC}; cuda_kernels is indexing-only (not in ALL)")
 endif()
 
 # ── Testing ──────────────────────────────────────────────────────────
@@ -116,15 +126,14 @@ add_test(NAME cargo_build_bench_example
         COMMAND cargo build --locked --features bench --example benchmark
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
-# CUDA PTX compile check — only when nvcc is present. Otherwise a full
-# `ctest` run would still invoke cuda_kernels and fail on CPU-only hosts
-# that intentionally leave CUDA_NVCC missing (Codex: skip CUDA CTest).
-if(TARGET cuda_kernels)
+# CUDA PTX compile check — only when nvcc is present. Building the
+# indexing-only cuda_kernels target does not compile PTX.
+if(MYELIN_HAS_NVCC)
     add_test(NAME cuda_kernel_build
             COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target cuda_kernels
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 else()
-    message(STATUS "Skipping CTest cuda_kernel_build (cuda_kernels target not defined)")
+    message(STATUS "Skipping CTest cuda_kernel_build (nvcc not found at ${CUDA_NVCC})")
 endif()
 
 # Do not add_executable() on .cu files here. CLion "New Target" / native CUDA
