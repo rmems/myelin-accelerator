@@ -51,11 +51,8 @@ This repo is the **low-level compute layer** behind the stack: CUDA PTX modules,
 - Better SM occupancy on Blackwell.
 - No global atomic serialization in the SAT best-score path.
 - No single-thread MoE routing bottleneck.
-- Clear boundary so consumers (`corinth-canal`, SNN stacks, quant prototypes) depend on one accelerator crate instead of copying kernels.
+- Clear boundary so consumers (SNN stacks, quant prototypes) depend on one accelerator crate instead of copying kernels.
 
-## Provenance
-
-Recent kernel work in this branch was authored with GPT-5.4 (`xhigh`) assistance. Architecture boundary docs: Grok Build agent: Grok 4.5.
 
 ## Usage
 
@@ -84,6 +81,17 @@ cargo test --locked
 cargo build --locked --no-default-features
 ```
 
+## Citation
+
+```bibtex
+@software{myelin_accelerator,
+  title  = {Myelin-Accelerator},
+  author = {Raul Montoya Cardenas},
+  year   = {2026},
+  url    = {https://github.com/rmems/myelin-accelerator}
+}
+```
+No formal citation required — use freely under the Apache 2.0 or MIT license. A link back to this repo is appreciated but not mandatory.
 ## License
 
 Licensed under either of:
